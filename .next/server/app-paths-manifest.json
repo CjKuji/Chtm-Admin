@@ -1,0 +1,10 @@
+{
+  "/not-found": "app/not-found.js",
+  "/page": "app/page.js",
+  "/favicon.ico/route": "app/favicon.ico/route.js",
+  "/room/page": "app/room/page.js",
+  "/reservation/page": "app/reservation/page.js",
+  "/tools/page": "app/tools/page.js",
+  "/settings/page": "app/settings/page.js",
+  "/profile/page": "app/profile/page.js"
+}
