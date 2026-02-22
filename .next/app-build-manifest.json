@@ -11,11 +11,14 @@
       "static/css/app/layout.css",
       "static/chunks/app/layout.js"
     ],
+<<<<<<< HEAD
     "/login/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
       "static/chunks/app/login/page.js"
     ],
+=======
+>>>>>>> 2db2deef335b3841c0a90faa4e94961f9e2e67fb
     "/reservation/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
