@@ -67,6 +67,6 @@ return (
         </div>
         <div className={`text-2xl ${iconColorClasses[color]}`}>{icon}</div>
       </div>
-    </div>
+    </Component>
   );
 }
