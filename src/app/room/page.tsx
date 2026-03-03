@@ -19,49 +19,7 @@ export default function RoomsInventory() {
       description:
         'Spacious deluxe room with king bed, balcony, and Jacuzzi. Enjoy a luxurious stay.',
       img: '/room2.jpg',
-    },
-    {
-      id: 'baking',
-      title: 'Baking Laboratory',
-      description:
-        'Fully equipped baking station with industrial ovens, mixers, and all necessary tools for pastry production.',
-      img: '/baking.jpg',
-    },
-    {
-      id: 'bar',
-      title: 'Bar',
-      description:
-        'Professional bar area with cocktail shakers, glassware, and a wide selection of spirits. Ideal for mixology classes.',
-      img: '/bar.avif',
-    },
-    {
-      id: 'coldKitchen',
-      title: 'Cold Kitchen',
-      description:
-        'Dedicated cold food preparation area with refrigeration units, salad prep tables, and cold storage.',
-      img: '/cold.jpg',
-    },
-    {
-      id: 'dining',
-      title: 'Dining Room',
-      description:
-        'Elegant dining space with fine china, glassware, and seating for 50 guests. Perfect for restaurant simulations.',
-      img: '/dining.jpg',
-    },
-    {
-      id: 'hotKitchen',
-      title: 'Hot Kitchen',
-      description:
-        'High-volume cooking line with ranges, fryers, and ventilation. Designed for culinary training.',
-      img: '/hot.jpg',
-    },
-    {
-      id: 'frontOffice',
-      title: 'Front Office',
-      description:
-        'Reception area with check-in counter, reservation system, and guest service facilities.',
-      img: '/office.jpg',
-    },
+    }
   ];
 
   return (
