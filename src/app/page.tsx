@@ -1,22 +1,20 @@
 "use client";
 
-import Link from "next/link";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Cormorant, Inter } from "next/font/google";
+import { supabase } from "@/lib/supabase";
 
 const cormorant = Cormorant({ subsets: ["latin"], weight: ["300", "400", "600"] });
 const inter = Inter({ subsets: ["latin"] });
 
-export default function LoginPage() {
+export default function AdminLoginPage() {
   const router = useRouter();
-  const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
 
@@ -25,28 +23,22 @@ export default function LoginPage() {
       return;
     }
 
-    if (!isLogin && password !== confirmPassword) {
-      setError("Passwords do not match");
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+
+    if (error) {
+      setError(error.message);
       return;
     }
 
-    // Store user info (demo)
-    localStorage.setItem("userEmail", email);
-    localStorage.setItem("userName", email.split("@")[0] || "User");
     router.push("/dashboard");
-  };
-
-  const toggleMode = () => {
-    setIsLogin(!isLogin);
-    setError("");
-    setEmail("");
-    setPassword("");
-    setConfirmPassword("");
   };
 
   return (
     <div className={`flex min-h-screen ${inter.className}`}>
-      {/* Left Side - Branding (unchanged) */}
+      {/* Left Side - Branding (UNCHANGED) */}
       <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-slate-600 via-slate-500 to-slate-400 relative">
         <div
           className="absolute inset-0 bg-cover bg-center"
@@ -57,20 +49,26 @@ export default function LoginPage() {
             <div className="w-32 h-32 bg-white rounded-full flex items-center justify-center p-2 overflow-hidden">
               <img src="/chtmlogo.png" alt="CHTM Logo" className="w-full h-full object-contain" />
             </div>
+
             <div className="text-center">
-              <h1 className="text-6xl font-bold tracking-tight" style={{ fontFamily: 'Montserrat, serif', color: '#FF0080' }}>
+              <h1
+                className="text-6xl font-bold tracking-tight"
+                style={{ fontFamily: "Montserrat, serif", color: "#FF0080" }}
+              >
                 CHTM-RRS
               </h1>
-              <p className="text-base font-medium mt-1 tracking-wide" style={{ fontFamily: 'Inter, serif' }}>
+              <p className="text-base font-medium mt-1 tracking-wide">
                 ROOM RESERVATION SYSTEM
               </p>
             </div>
+
             <div className="w-32 h-32 bg-white rounded-full flex items-center justify-center p-2 overflow-hidden">
               <img src="/gclogo.png" alt="GC Logo" className="w-full h-full object-contain" />
             </div>
           </div>
+
           <p
-            className={`text-left flex items-center mt-8 ${inter.className}`}
+            className="text-left flex items-center mt-8"
             style={{
               width: "430px",
               height: "96px",
@@ -82,25 +80,34 @@ export default function LoginPage() {
           >
             "Enhancing service excellence through the College of Hospitality and Tourism Management"
           </p>
-          <div className="w-48 h-1 bg-pink-600 mt-4 self-start" style={{ marginLeft: "calc((100% - 430px) / 2)" }}></div>
-          <p className="mt-6 text-white text-sm font-semibold self-start" style={{ marginLeft: "calc((100% - 430px) / 2)" }}>
+
+          <div
+            className="w-48 h-1 bg-pink-600 mt-4 self-start"
+            style={{ marginLeft: "calc((100% - 430px) / 2)" }}
+          ></div>
+
+          <p
+            className="mt-6 text-white text-sm font-semibold self-start"
+            style={{ marginLeft: "calc((100% - 430px) / 2)" }}
+          >
             CHTM Department
           </p>
         </div>
       </div>
 
-      {/* Right Side - Login/Signup Form */}
+      {/* Right Side - ADMIN LOGIN ONLY */}
       <div className="flex-1 flex items-center justify-center p-8 bg-white">
         <div className="w-full max-w-2xl px-8">
           <div className="mb-12">
-            <h2 className={`text-7xl font-light mb-2 ${cormorant.className}`} style={{ color: "#3D5A4C" }}>
-              {isLogin ? "Welcome Back" : "Create Account"}
+            <h2
+              className={`text-7xl font-light mb-2 ${cormorant.className}`}
+              style={{ color: "#3D5A4C" }}
+            >
+              Admin Login
             </h2>
             <div className="w-64 h-1 bg-pink-600 mb-4"></div>
             <p className="text-gray-600 text-base font-medium">
-              {isLogin
-                ? "Please sign in to access the admin page."
-                : "Fill in the details to create your account."}
+              Sign in to access the admin dashboard.
             </p>
           </div>
 
@@ -112,8 +119,12 @@ export default function LoginPage() {
 
           <form onSubmit={handleSubmit} className="space-y-6">
             <div>
-              <label htmlFor="email" className={`block text-lg font-medium mb-2 ${cormorant.className}`} style={{ color: "#3D5A4C" }}>
-                Email
+              <label
+                htmlFor="email"
+                className={`block text-lg font-medium mb-2 ${cormorant.className}`}
+                style={{ color: "#3D5A4C" }}
+              >
+                Admin Email
               </label>
               <input
                 id="email"
@@ -126,7 +137,11 @@ export default function LoginPage() {
             </div>
 
             <div>
-              <label htmlFor="password" className={`block text-lg font-medium mb-2 ${cormorant.className}`} style={{ color: "#3D5A4C" }}>
+              <label
+                htmlFor="password"
+                className={`block text-lg font-medium mb-2 ${cormorant.className}`}
+                style={{ color: "#3D5A4C" }}
+              >
                 Password
               </label>
               <input
@@ -139,53 +154,15 @@ export default function LoginPage() {
               />
             </div>
 
-            {!isLogin && (
-              <div>
-                <label htmlFor="confirmPassword" className={`block text-lg font-medium mb-2 ${cormorant.className}`} style={{ color: "#3D5A4C" }}>
-                  Confirm Password
-                </label>
-                <input
-                  id="confirmPassword"
-                  type="password"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  className="w-full px-4 py-4 text-lg border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-pink-600 focus:border-transparent bg-gray-50 text-black"
-                  required
-                />
-              </div>
-            )}
-
-            {isLogin && (
-              <div className="flex justify-end">
-                <Link
-                  href="/forgot-password"
-                  className={`text-base text-gray-600 hover:text-pink-600 transition-colors ${cormorant.className}`}
-                >
-                  Forgot Password?
-                </Link>
-              </div>
-            )}
-
             <button
               type="submit"
-              className="w-full text-white py-4 px-4 text-lg rounded-md transition-colors font-medium flex items-center justify-center gap-2"
+              className="w-full text-white py-4 px-4 text-lg rounded-md transition-colors font-medium"
               style={{ backgroundColor: "#3D5A4C" }}
               onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "#2d4339")}
               onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "#3D5A4C")}
             >
-              {isLogin ? "Sign in →" : "Sign up →"}
+              Sign in →
             </button>
-
-            <p className="text-center text-gray-600 mt-4">
-              {isLogin ? "Don't have an account?" : "Already have an account?"}{" "}
-              <button
-                type="button"
-                onClick={toggleMode}
-                className="text-pink-600 hover:underline font-medium"
-              >
-                {isLogin ? "Sign up" : "Sign in"}
-              </button>
-            </p>
           </form>
         </div>
       </div>
