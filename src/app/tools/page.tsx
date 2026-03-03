@@ -16,21 +16,10 @@ interface Tool {
   total: number;
 }
 
-interface RequestItem {
-  id: number;
-  name: string;
-  quantity: number;
-  unit: string;
-  remarks: string;
-  date: string;
-  approved: boolean;
-}
-
 export default function ToolInventory() {
   const [categoryFilter, setCategoryFilter] = useState<'all' | 'kitchen' | 'bar' | 'baking'>('all');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [tools, setTools] = useState<Tool[]>([]);
-  const [requests, setRequests] = useState<RequestItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [editTool, setEditTool] = useState<Tool | null>(null);
@@ -45,7 +34,6 @@ export default function ToolInventory() {
   // Fetch tools from Supabase
   useEffect(() => {
     fetchTools();
-    fetchRequests();
   }, []);
 
   const fetchTools = async () => {
@@ -62,20 +50,6 @@ export default function ToolInventory() {
       console.error('Error fetching tools:', error);
     } finally {
       setLoading(false);
-    }
-  };
-
-  const fetchRequests = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('requests')
-        .select('*')
-        .order('date', { ascending: false });
-
-      if (error) throw error;
-      setRequests(data || []);
-    } catch (error) {
-      console.error('Error fetching requests:', error);
     }
   };
 
@@ -124,36 +98,6 @@ export default function ToolInventory() {
     } catch (error) {
       console.error('Error adding tool:', error);
       alert('Error adding tool. Please try again.');
-    }
-  };
-
-  const approveRequest = async (id: number) => {
-    try {
-      const { error } = await supabase
-        .from('requests')
-        .update({ approved: true })
-        .eq('id', id);
-
-      if (error) throw error;
-      fetchRequests();
-    } catch (error) {
-      console.error('Error approving request:', error);
-      alert('Error approving request. Please try again.');
-    }
-  };
-
-  const deleteRequest = async (id: number) => {
-    try {
-      const { error } = await supabase
-        .from('requests')
-        .delete()
-        .eq('id', id);
-
-      if (error) throw error;
-      fetchRequests();
-    } catch (error) {
-      console.error('Error deleting request:', error);
-      alert('Error deleting request. Please try again.');
     }
   };
 
@@ -373,68 +317,6 @@ export default function ToolInventory() {
               <p className="text-sm text-gray-600 font-medium">Baking Tools</p>
               <p className="text-2xl font-bold text-gray-800 mt-2">{bakingTools.length}</p>
             </div>
-          </div>
-
-          {/* Requested Tools List with Approval Status */}
-          <div className="mt-8">
-            <h2 className="text-xl font-bold text-gray-800 mb-4">Requested Tools</h2>
-            {requests.length > 0 ? (
-              <div className="bg-white rounded-lg shadow-md overflow-hidden">
-                <table className="w-full">
-                  <thead className="bg-gray-50 border-b border-gray-200">
-                    <tr>
-                      <th className="text-left py-3 px-6 text-sm font-semibold text-gray-600">Tool Name</th>
-                      <th className="text-left py-3 px-6 text-sm font-semibold text-gray-600">Quantity</th>
-                      <th className="text-left py-3 px-6 text-sm font-semibold text-gray-600">Unit</th>
-                      <th className="text-left py-3 px-6 text-sm font-semibold text-gray-600">Remarks</th>
-                      <th className="text-left py-3 px-6 text-sm font-semibold text-gray-600">Date Requested</th>
-                      <th className="text-left py-3 px-6 text-sm font-semibold text-gray-600">Status</th>
-                      <th className="text-left py-3 px-6 text-sm font-semibold text-gray-600">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {requests.map((req) => (
-                      <tr key={req.id} className="border-b border-gray-100 hover:bg-pink-50 transition-colors duration-200">
-                        <td className="py-3 px-6 text-sm text-gray-800">{req.name}</td>
-                        <td className="py-3 px-6 text-sm text-gray-800">{req.quantity}</td>
-                        <td className="py-3 px-6 text-sm text-gray-800">{req.unit}</td>
-                        <td className="py-3 px-6 text-sm text-gray-800">{req.remarks}</td>
-                        <td className="py-3 px-6 text-sm text-gray-800">{req.date}</td>
-                        <td className="py-3 px-6">
-                          <span className={`px-2 py-1 text-xs rounded-full ${
-                            req.approved ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
-                          }`}>
-                            {req.approved ? 'Approved' : 'Pending'}
-                          </span>
-                        </td>
-                        <td className="py-3 px-6">
-                          <div className="flex gap-2">
-                            {!req.approved && (
-                              <button
-                                onClick={() => approveRequest(req.id)}
-                                className="text-xs text-teal-600 hover:text-teal-800 font-medium"
-                              >
-                                Approve
-                              </button>
-                            )}
-                            <button
-                              onClick={() => deleteRequest(req.id)}
-                              className="text-xs text-red-600 hover:text-red-800 font-medium"
-                            >
-                              Delete
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <div className="bg-white rounded-lg shadow-md p-8 text-center text-gray-500">
-                No requested tools.
-              </div>
-            )}
           </div>
         </div>
         {isModalOpen && (
