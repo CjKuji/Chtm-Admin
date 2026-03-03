@@ -33,15 +33,15 @@ export default function StatCard({
   subtitle,
   onClick,
 }: StatCardProps) {
-  return (
-    <div
-      className={`rounded-lg border-l-4 ${colorClasses[color]} p-6 shadow-md transition-all duration-200 hover:bg-pink-50 ${
-        onClick ? 'cursor-pointer hover:shadow-lg' : ''
-      }`}
-      onClick={onClick}
-      role={onClick ? 'button' : undefined}
-      tabIndex={onClick ? 0 : undefined}
-    >
+  const Component = onClick ? 'button' : 'div';
+
+return (
+  <Component
+    onClick={onClick}
+    className={`rounded-lg border-l-4 ${colorClasses[color]} p-6 shadow-md transition-all duration-200 hover:bg-pink-50 ${
+      onClick ? 'cursor-pointer hover:shadow-lg' : ''
+    }`}
+  >
       <div className="flex items-start justify-between">
         <div>
           <p className="text-gray-600 text-sm font-semibold uppercase tracking-wider antialiased">
