@@ -4,15 +4,15 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 interface ProfileCardProps {
-  userName?: string;
-  userEmail?: string;
+  userName: string;
+  userEmail: string;
   avatar?: string | null;
   onLogout?: () => void;
 }
 
 export default function ProfileCard({ 
-  userName = 'Aleczandergopez', 
-  userEmail = 'aleczandergopez@gmail.com',
+  userName,
+  userEmail,
   avatar,
   onLogout 
 }: ProfileCardProps) {

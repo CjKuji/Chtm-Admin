@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase';
 import ProfileCard from './ProfileCard';
 
 export default function Topbar() {
-  const [userProfile, setUserProfile] = useState<{ full_name: string; email: string } | null>(null);
+  const [userProfile, setUserProfile] = useState<{ fname: string; lname: string; email: string } | null>(null);
   const [mounted, setMounted] = useState(false); // flag for client-only render
 
   useEffect(() => {
@@ -22,7 +22,7 @@ export default function Topbar() {
     const fetchProfile = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
-        setUserProfile({ full_name: 'Guest', email: '' });
+        setUserProfile({ fname: 'Guest', lname: '', email: '' });
         localStorage.removeItem('userProfile');
         return;
       }
@@ -30,12 +30,13 @@ export default function Topbar() {
       // Fetch full profile from users table
       const { data: profile } = await supabase
         .from('users')
-        .select('full_name')
+        .select('fname, lname')
         .eq('id', user.id)
         .single();
 
       const profileData = {
-        full_name: profile?.full_name ?? user.email?.split('@')[0] ?? 'Admin',
+        fname: profile?.fname ?? user.email?.split('@')[0] ?? 'Admin',
+        lname: profile?.lname ?? '',
         email: user.email ?? ''
       };
 
@@ -80,7 +81,11 @@ export default function Topbar() {
 
           <div className="pl-4 border-l border-gray-200">
             <ProfileCard
-              userName={userProfile?.full_name ?? 'Guest'}
+              userName={
+                userProfile
+                  ? `${userProfile.fname} ${userProfile.lname}`
+                  : 'Guest'
+              }
               userEmail={userProfile?.email ?? ''}
             />
           </div>

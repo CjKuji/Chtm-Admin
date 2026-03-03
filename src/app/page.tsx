@@ -23,16 +23,45 @@ export default function AdminLoginPage() {
       return;
     }
 
-    const { data, error } = await supabase.auth.signInWithPassword({
+    // 1️⃣ Authenticate with Supabase
+    const { data, error: signInError } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
 
-    if (error) {
-      setError(error.message);
+    if (signInError) {
+      setError(signInError.message);
       return;
     }
 
+    const user = data.user;
+
+    if (!user) {
+      setError("Authentication failed.");
+      return;
+    }
+
+    // 2️⃣ Fetch role from public.users
+    const { data: profile, error: profileError } = await supabase
+      .from("users")
+      .select("role")
+      .eq("id", user.id)
+      .single();
+
+    if (profileError || !profile) {
+      await supabase.auth.signOut();
+      setError("User profile not found.");
+      return;
+    }
+
+    // 3️⃣ Check role
+    if (profile.role !== "admin") {
+      await supabase.auth.signOut();
+      setError("You are not authorized to access the admin dashboard.");
+      return;
+    }
+
+    // ✅ Admin → proceed
     router.push("/dashboard");
   };
 
