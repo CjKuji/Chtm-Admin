@@ -8,12 +8,23 @@ import Sidebar from '@/app/components/Sidebar';
 import Topbar from '@/app/components/Topbar';
 import StatCard from '@/app/components/StatCard';
 
+// ✅ Match the User type expected by Topbar
+interface User {
+  id: string;
+  fname: string;
+  lname: string;
+  email: string;
+  role: string;
+}
+
 export default function Dashboard() {
   const router = useRouter();
+
   const [loadingData, setLoadingData] = useState(true);
   const [totalRooms, setTotalRooms] = useState(0);
   const [occupiedRooms, setOccupiedRooms] = useState<any[]>([]);
   const [upcomingBookings, setUpcomingBookings] = useState<any[]>([]);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
 
   useEffect(() => {
     const fetchDashboardData = async () => {
@@ -23,6 +34,16 @@ export default function Dashboard() {
         router.push('/login');
         return;
       }
+
+      // ✅ Set current user for Topbar with required fields
+      // ✅ Set current user for Topbar with required fields
+setCurrentUser({
+  id: user.id,
+  fname: (user.user_metadata?.fname ?? '') as string,
+  lname: (user.user_metadata?.lname ?? '') as string,
+  email: user.email ?? '',
+  role: (user.user_metadata?.role ?? 'admin') as string,
+});
 
       const now = new Date().toISOString();
 
@@ -41,7 +62,7 @@ export default function Dashboard() {
           .gt('start_at', now)
           .eq('status', 'approved')
           .order('start_at', { ascending: true })
-          .limit(5)
+          .limit(5),
       ]);
 
       setTotalRooms(roomsRes.count || 0);
@@ -56,9 +77,10 @@ export default function Dashboard() {
   return (
     <div className="flex min-h-screen bg-gray-50 font-sans antialiased">
       <Sidebar activeMenu="dashboard" />
+
       <main className="relative flex-1 ml-64 overflow-hidden">
-        {/* Topbar now fetches and shows the user profile */}
-        <Topbar />
+        {/* ✅ Pass fully-typed user to Topbar */}
+        <Topbar user={currentUser} />
 
         <div className="p-6">
           <h1 className="text-2xl font-bold text-gray-800 mb-6">Dashboard</h1>

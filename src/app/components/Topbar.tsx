@@ -4,15 +4,10 @@ import ProfileCard from './ProfileCard';
 import { User } from '@/app/profile/page';
 
 interface TopbarProps {
-  user: User | null;
+  user?: Partial<User> | null;
 }
 
 export default function Topbar({ user }: TopbarProps) {
-  const getInitials = () => {
-    if (!user) return '';
-    return `${user.fname[0] || ''}${user.lname[0] || ''}`.toUpperCase();
-  };
-
   return (
     <header className="sticky top-0 z-10 bg-white border-b border-gray-200 shadow-sm font-sans antialiased">
       <div className="px-6 py-4 flex items-center justify-between">
@@ -46,7 +41,6 @@ export default function Topbar({ user }: TopbarProps) {
             <ProfileCard
               userName={user ? `${user.fname} ${user.lname}` : 'Guest'}
               userEmail={user?.email ?? ''}
-              userInitials={getInitials()}
             />
           </div>
         </div>
