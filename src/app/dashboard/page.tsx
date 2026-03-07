@@ -8,46 +8,23 @@ import Sidebar from '@/app/components/Sidebar';
 import Topbar from '@/app/components/Topbar';
 import StatCard from '@/app/components/StatCard';
 
-// ✅ Match the User type expected by Topbar
-interface User {
-  id: string;
-  fname: string;
-  lname: string;
-  email: string;
-  role: string;
-}
-
 export default function Dashboard() {
   const router = useRouter();
-
   const [loadingData, setLoadingData] = useState(true);
   const [totalRooms, setTotalRooms] = useState(0);
   const [occupiedRooms, setOccupiedRooms] = useState<any[]>([]);
   const [upcomingBookings, setUpcomingBookings] = useState<any[]>([]);
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
 
   useEffect(() => {
     const fetchDashboardData = async () => {
-      // 🔐 Check if user is logged in
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
         router.push('/login');
         return;
       }
 
-      // ✅ Set current user for Topbar with required fields
-      // ✅ Set current user for Topbar with required fields
-setCurrentUser({
-  id: user.id,
-  fname: (user.user_metadata?.fname ?? '') as string,
-  lname: (user.user_metadata?.lname ?? '') as string,
-  email: user.email ?? '',
-  role: (user.user_metadata?.role ?? 'admin') as string,
-});
-
       const now = new Date().toISOString();
 
-      // Fetch all dashboard data in parallel
       const [roomsRes, occupiedRes, upcomingRes] = await Promise.all([
         supabase.from('rooms').select('*', { count: 'exact', head: true }),
         supabase
@@ -77,10 +54,8 @@ setCurrentUser({
   return (
     <div className="flex min-h-screen bg-gray-50 font-sans antialiased">
       <Sidebar activeMenu="dashboard" />
-
       <main className="relative flex-1 ml-64 overflow-hidden">
-        {/* ✅ Pass fully-typed user to Topbar */}
-        <Topbar user={currentUser} />
+        <Topbar />
 
         <div className="p-6">
           <h1 className="text-2xl font-bold text-gray-800 mb-6">Dashboard</h1>

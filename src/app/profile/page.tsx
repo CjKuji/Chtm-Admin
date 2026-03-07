@@ -10,7 +10,14 @@ import { Cormorant, Inter } from 'next/font/google';
 const cormorant = Cormorant({ subsets: ['latin'], weight: ['300', '400', '600'] });
 const inter = Inter({ subsets: ['latin'] });
 
-// ✅ User type defined here
+// Extend window type for ProfileCard refresh
+declare global {
+  interface Window {
+    refreshProfileCard?: () => void;
+  }
+}
+
+// ✅ User type
 export interface User {
   id: string;
   fname: string;
@@ -32,39 +39,39 @@ export default function ProfilePage() {
   const isValidEmail = (email: string) =>
     /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
 
-  // Fetch user on mount
-  useEffect(() => {
-    const fetchUser = async () => {
-      setLoading(true);
-      const { data: { user: sessionUser }, error: authError } = await supabase.auth.getUser();
-      if (authError || !sessionUser) {
-        router.push('/login');
-        return;
-      }
+  // Fetch user
+  const fetchUser = async () => {
+    setLoading(true);
+    const { data: { user: sessionUser }, error: authError } = await supabase.auth.getUser();
+    if (authError || !sessionUser) {
+      router.push('/login');
+      return;
+    }
 
-      const { data: profileData, error: profileError } = await supabase
-        .from('users')
-        .select('id,fname,lname,role')
-        .eq('id', sessionUser.id)
-        .maybeSingle();
+    const { data: profileData, error: profileError } = await supabase
+      .from('users')
+      .select('id,fname,lname,role')
+      .eq('id', sessionUser.id)
+      .maybeSingle();
 
-      if (profileError) console.error('Profile fetch error:', profileError);
+    if (profileError) console.error('Profile fetch error:', profileError);
 
-      const userProfile: User = {
-        id: sessionUser.id,
-        fname: profileData?.fname || '',
-        lname: profileData?.lname || '',
-        role: profileData?.role || 'user',
-        email: sessionUser.email
-      };
-
-      setUser(userProfile);
-      setFormFName(userProfile.fname);
-      setFormLName(userProfile.lname);
-      setFormEmail(userProfile.email || '');
-      setLoading(false);
+    const userProfile: User = {
+      id: sessionUser.id,
+      fname: profileData?.fname || '',
+      lname: profileData?.lname || '',
+      role: profileData?.role || 'user',
+      email: sessionUser.email
     };
 
+    setUser(userProfile);
+    setFormFName(userProfile.fname);
+    setFormLName(userProfile.lname);
+    setFormEmail(userProfile.email || '');
+    setLoading(false);
+  };
+
+  useEffect(() => {
     fetchUser();
   }, [router]);
 
@@ -73,6 +80,7 @@ export default function ProfilePage() {
     return `${user.fname[0] || ''}${user.lname[0] || ''}`.toUpperCase();
   };
 
+  // Save profile changes
   const handleSave = async () => {
     if (!user) return;
 
@@ -80,18 +88,11 @@ export default function ProfilePage() {
     const trimmedLName = formLName.trim();
     const trimmedEmail = formEmail.trim();
 
-    if (!trimmedFName || !trimmedLName) {
-      alert('First and Last Name cannot be empty.');
-      return;
-    }
-
-    if (trimmedEmail && !isValidEmail(trimmedEmail)) {
-      alert('Please enter a valid email address.');
-      return;
-    }
+    if (!trimmedFName || !trimmedLName) return alert('First and Last Name cannot be empty.');
+    if (trimmedEmail && !isValidEmail(trimmedEmail)) return alert('Invalid email address.');
 
     try {
-      // Update email via API if changed
+      // Update email if changed
       if (trimmedEmail && trimmedEmail !== user.email) {
         const res = await fetch('/api/email', {
           method: 'POST',
@@ -99,29 +100,32 @@ export default function ProfilePage() {
           body: JSON.stringify({ userId: user.id, newEmail: trimmedEmail }),
         });
         const data = await res.json();
-        if (!res.ok) {
-          alert(`Cannot update email: ${data.error}`);
-          return;
-        }
+        if (!res.ok) return alert(`Cannot update email: ${data.error}`);
       }
 
-      // Update names in DB
+      // Update DB
       const { error: dbError } = await supabase
         .from('users')
         .update({ fname: trimmedFName, lname: trimmedLName })
         .eq('id', user.id);
 
-      if (dbError) {
-        alert(`Cannot update profile: ${dbError.message}`);
-        return;
-      }
+      if (dbError) return alert(`Cannot update profile: ${dbError.message}`);
 
-      setUser({ ...user, fname: trimmedFName, lname: trimmedLName, email: trimmedEmail });
+      const updatedUser: User = { ...user, fname: trimmedFName, lname: trimmedLName, email: trimmedEmail };
+      setUser(updatedUser);
       setIsEditing(false);
       alert('Profile updated successfully!');
+
+      // Update ProfileCard cache & refresh
+      localStorage.setItem('profileCardUser', JSON.stringify({
+        userName: `${trimmedFName} ${trimmedLName}`,
+        userEmail: trimmedEmail
+      }));
+      if (window.refreshProfileCard) window.refreshProfileCard();
+
     } catch (err) {
       console.error('Unexpected error:', err);
-      alert('Unexpected error occurred. Check console.');
+      alert('Unexpected error occurred.');
     }
   };
 
@@ -132,7 +136,7 @@ export default function ProfilePage() {
     <div className={`flex min-h-screen bg-gray-50 font-sans antialiased ${inter.className}`}>
       <Sidebar activeMenu="profile" />
       <main className="flex-1 ml-64">
-        <Topbar user={user} />
+        <Topbar />
 
         <div className="p-6 max-w-2xl mx-auto">
           <h1 className={`text-2xl font-bold text-gray-800 mb-6 ${cormorant.className}`} style={{ color: '#3D5A4C' }}>
