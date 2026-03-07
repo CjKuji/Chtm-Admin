@@ -58,7 +58,7 @@ export default function ProfileCard() {
   const handleLogout = async () => {
     await supabase.auth.signOut();
     localStorage.removeItem('profileCardUser');
-    router.push('/login');
+    router.push('/');
   };
 
   const getInitials = (name: string) =>

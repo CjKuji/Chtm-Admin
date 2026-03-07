@@ -17,16 +17,15 @@ interface Tool {
 }
 
 export default function ToolInventory() {
-  const [
-    categoryFilter,
-    setCategoryFilter,
-  ] = useState<"all" | "kitchen" | "bar" | "baking">("all");
+  const [categoryFilter, setCategoryFilter] = useState<
+    "all" | "kitchen" | "bar" | "baking"
+  >("all");
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [tools, setTools] = useState<Tool[]>([]);
+  const [archivedTools, setArchivedTools] = useState<Tool[]>([]);
   const [loading, setLoading] = useState(true);
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [editTool, setEditTool] = useState<Tool | null>(null);
-  const [archivedTools, setArchivedTools] = useState<Tool[]>([]);
   const [archiveModalOpen, setArchiveModalOpen] = useState(false);
 
   const [newTool, setNewTool] = useState({
@@ -36,6 +35,40 @@ export default function ToolInventory() {
     total: 0,
   });
 
+  // New: state for user role
+  const [userRole, setUserRole] = useState<string | null>(null);
+
+  // Fetch user role dynamically
+  useEffect(() => {
+    const fetchUserRole = async () => {
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        const user = session?.user;
+        if (!user) return;
+
+        const { data: profile, error } = await supabase
+          .from("users")
+          .select("role")
+          .eq("id", user.id)
+          .single();
+
+        if (error) {
+          console.error("Error fetching profile:", error);
+          return;
+        }
+
+        setUserRole(profile.role);
+      } catch (error) {
+        console.error("Unexpected error fetching user role:", error);
+      }
+    };
+
+    fetchUserRole();
+  }, []);
+
+  // Fetch tools
   useEffect(() => {
     fetchTools();
     fetchArchivedTools();
@@ -44,24 +77,17 @@ export default function ToolInventory() {
   const fetchTools = async () => {
     try {
       setLoading(true);
-
-      // Only fetch tools that are NOT archived
       const { data, error } = await supabase
         .from("tools")
         .select("*")
         .neq("status", "archived")
         .order("created_at", { ascending: false });
 
-      if (error) {
-        console.error("Supabase error:", error);
-        setTools([]); // fallback to empty array
-        return;
-      }
-      // Handle empty table gracefully
-      setTools(data && data.length > 0 ? data : []);
+      if (error) throw error;
+      setTools(data || []);
     } catch (error) {
-      console.error("Unexpected error fetching tools:", error);
-      setTools([]); // fallback to empty array
+      console.error("Error fetching tools:", error);
+      setTools([]);
     } finally {
       setLoading(false);
     }
@@ -76,7 +102,6 @@ export default function ToolInventory() {
         .order("created_at", { ascending: false });
 
       if (error) throw error;
-
       setArchivedTools(data || []);
     } catch (error) {
       console.error("Error fetching archived tools:", error);
@@ -84,10 +109,7 @@ export default function ToolInventory() {
     }
   };
 
-  const computeStatus = (
-    quantity: number,
-    total: number
-  ): Tool["status"] => {
+  const computeStatus = (quantity: number, total: number): Tool["status"] => {
     if (total === 0 || quantity === 0) return "no_stck";
     const pct = (quantity / total) * 100;
     if (pct === 100) return "full_stck";
@@ -96,22 +118,13 @@ export default function ToolInventory() {
   };
 
   const getToolStatus = (status: string) => {
-    const statusMap: Record<
-      string,
-      { text: string; color: string }
-    > = {
+    const statusMap: Record<string, { text: string; color: string }> = {
       no_stck: { text: "No stock", color: "bg-red-100 text-red-700" },
       low_stck: { text: "Low stock", color: "bg-yellow-100 text-yellow-700" },
       in_stck: { text: "In stock", color: "bg-green-100 text-green-700" },
-      full_stck: {
-        text: "Full stock",
-        color: "bg-teal-100 text-teal-700",
-      },
+      full_stck: { text: "Full stock", color: "bg-teal-100 text-teal-700" },
     };
-    return statusMap[status] || {
-      text: status,
-      color: "bg-gray-100 text-gray-700",
-    };
+    return statusMap[status] || { text: status, color: "bg-gray-100 text-gray-700" };
   };
 
   const handleAddTool = async () => {
@@ -127,16 +140,10 @@ export default function ToolInventory() {
           last_checked: new Date().toISOString().split("T")[0],
         },
       ]);
-
       if (error) throw error;
 
       setIsModalOpen(false);
-      setNewTool({
-        name: "",
-        category: "kitchen",
-        quantity: 0,
-        total: 0,
-      });
+      setNewTool({ name: "", category: "kitchen", quantity: 0, total: 0 });
       fetchTools();
     } catch (error) {
       console.error("Error adding tool:", error);
@@ -145,6 +152,7 @@ export default function ToolInventory() {
   };
 
   const deleteTool = async (id: string) => {
+    if (userRole !== "super_admin") return; // only super_admin can delete
     try {
       const { error } = await supabase.from("tools").delete().eq("id", id);
       if (error) throw error;
@@ -161,9 +169,7 @@ export default function ToolInventory() {
         .from("tools")
         .update({ status: "archived" })
         .eq("id", id);
-
       if (error) throw error;
-
       fetchTools();
       fetchArchivedTools();
     } catch (error) {
@@ -177,11 +183,12 @@ export default function ToolInventory() {
       ? tools
       : tools.filter((t) => t.category === categoryFilter);
 
-  const showSimplifiedColumns = categoryFilter !== "all";
-
+  // Summary counts
   const kitchenTools = tools.filter((t) => t.category === "kitchen");
   const barTools = tools.filter((t) => t.category === "bar");
   const bakingTools = tools.filter((t) => t.category === "baking");
+
+  const showSimplifiedColumns = categoryFilter !== "all";
 
   if (loading) {
     return (
@@ -203,11 +210,9 @@ export default function ToolInventory() {
       <main className="flex-1 ml-64">
         <Topbar />
         <div className="p-6">
+          {/* Header */}
           <div className="flex justify-between items-center mb-6">
-            <h1 className="text-2xl font-bold text-gray-800">
-              Tool Inventory
-            </h1>
-            
+            <h1 className="text-2xl font-bold text-gray-800">Tool Inventory</h1>
             <div className="flex gap-3">
               <button
                 onClick={() => setArchiveModalOpen(true)}
@@ -215,7 +220,6 @@ export default function ToolInventory() {
               >
                 Archive
               </button>
-
               <button
                 onClick={() => setIsModalOpen(true)}
                 className="bg-pink-500 hover:bg-pink-600 text-white px-4 py-2 rounded-md text-sm"
@@ -225,30 +229,24 @@ export default function ToolInventory() {
             </div>
           </div>
 
-          {/* Filters */}
+          {/* Category Filters */}
           <div className="bg-white rounded-lg shadow-md p-4 mb-6 hover:bg-pink-50 transition-colors duration-200">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <span className="text-sm font-medium text-gray-700">
-                  Filter by category:
-                </span>
-                <div className="flex gap-2">
-                  {(["all", "kitchen", "bar", "baking"] as const).map(
-                    (cat) => (
-                      <button
-                        key={cat}
-                        onClick={() => setCategoryFilter(cat)}
-                        className={`px-3 py-1 text-sm rounded-full transition ${
-                          categoryFilter === cat
-                            ? "bg-pink-500 text-white"
-                            : "bg-gray-200 text-gray-700 hover:bg-pink-400 hover:text-white"
-                        }`}
-                      >
-                        {cat.charAt(0).toUpperCase() + cat.slice(1)}
-                      </button>
-                    )
-                  )}
-                </div>
+            <div className="flex items-center gap-4">
+              <span className="text-sm font-medium text-gray-700">Filter by category:</span>
+              <div className="flex gap-2">
+                {(["all", "kitchen", "bar", "baking"] as const).map((cat) => (
+                  <button
+                    key={cat}
+                    onClick={() => setCategoryFilter(cat)}
+                    className={`px-3 py-1 text-sm rounded-full transition ${
+                      categoryFilter === cat
+                        ? "bg-pink-500 text-white"
+                        : "bg-gray-200 text-gray-700 hover:bg-pink-400 hover:text-white"
+                    }`}
+                  >
+                    {cat.charAt(0).toUpperCase() + cat.slice(1)}
+                  </button>
+                ))}
               </div>
             </div>
           </div>
@@ -260,156 +258,72 @@ export default function ToolInventory() {
                 <tr>
                   {showSimplifiedColumns ? (
                     <>
-                      <th className="text-left py-3 px-6 text-sm font-semibold text-gray-600">
-                        NAME OF TOOLS EQUIPMENT
-                      </th>
-                      <th className="text-left py-3 px-6 text-sm font-semibold text-gray-600">
-                        QUANTITY
-                      </th>
-                      <th className="text-left py-3 px-6 text-sm font-semibold text-gray-600">
-                        TOTAL
-                      </th>
-                      <th className="text-left py-3 px-6 text-sm font-semibold text-gray-600">
-                        STATUS
-                      </th>
-                      <th className="text-left py-3 px-6 text-sm font-semibold text-gray-600">
-                        ACTIONS
-                      </th>
+                      <th className="text-left py-3 px-6 text-sm font-semibold text-gray-600">NAME OF TOOLS EQUIPMENT</th>
+                      <th className="text-left py-3 px-6 text-sm font-semibold text-gray-600">QUANTITY</th>
+                      <th className="text-left py-3 px-6 text-sm font-semibold text-gray-600">TOTAL</th>
+                      <th className="text-left py-3 px-6 text-sm font-semibold text-gray-600">STATUS</th>
+                      <th className="text-left py-3 px-6 text-sm font-semibold text-gray-600">ACTIONS</th>
                     </>
                   ) : (
                     <>
-                      <th className="text-left py-3 px-6 text-sm font-semibold text-gray-600">
-                        Tool Name
-                      </th>
-                      <th className="text-left py-3 px-6 text-sm font-semibold text-gray-600">
-                        Category
-                      </th>
-                      <th className="text-left py-3 px-6 text-sm font-semibold text-gray-600">
-                        Quantity
-                      </th>
-                      <th className="text-left py-3 px-6 text-sm font-semibold text-gray-600">
-                        Total
-                      </th>
-                      <th className="text-left py-3 px-6 text-sm font-semibold text-gray-600">
-                        Status
-                      </th>
-                      <th className="text-left py-3 px-6 text-sm font-semibold text-gray-600">
-                        Last Checked
-                      </th>
-                      <th className="text-left py-3 px-6 text-sm font-semibold text-gray-600">
-                        Actions
-                      </th>
+                      <th className="text-left py-3 px-6 text-sm font-semibold text-gray-600">Tool Name</th>
+                      <th className="text-left py-3 px-6 text-sm font-semibold text-gray-600">Category</th>
+                      <th className="text-left py-3 px-6 text-sm font-semibold text-gray-600">Quantity</th>
+                      <th className="text-left py-3 px-6 text-sm font-semibold text-gray-600">Total</th>
+                      <th className="text-left py-3 px-6 text-sm font-semibold text-gray-600">Status</th>
+                      <th className="text-left py-3 px-6 text-sm font-semibold text-gray-600">Last Checked</th>
+                      <th className="text-left py-3 px-6 text-sm font-semibold text-gray-600">Actions</th>
                     </>
                   )}
                 </tr>
               </thead>
               <tbody>
                 {filteredTools.map((tool) => (
-                  <tr
-                    key={tool.id}
-                    className="border-b border-gray-100 hover:bg-pink-50 transition-colors duration-200"
-                  >
-                    {showSimplifiedColumns ? (
-                      <>
-                        <td className="py-3 px-6 text-sm text-gray-800">
-                          {tool.name}
-                        </td>
-                        <td className="py-3 px-6 text-sm text-gray-800">
-                          {tool.quantity}
-                        </td>
-                        <td className="py-3 px-6 text-sm text-gray-800">
-                          {tool.total}
-                        </td>
-                        <td className="py-3 px-6">
-                          <span
-                            className={`px-2 py-1 text-xs rounded-full ${
-                              getToolStatus(tool.status).color
-                            }`}
-                          >
-                            {getToolStatus(tool.status).text}
-                          </span>
-                        </td>
-                        <td className="py-3 px-6">
-                          <div className="flex gap-2">
-                            <button className="text-xs text-teal-600 hover:text-teal-800 font-medium">
-                              Edit
-                            </button>
-                            <button
-                              onClick={() => deleteTool(tool.id)}
-                              className="text-xs text-red-600 hover:text-red-800 font-medium"
-                            >
-                              Delete
-                            </button>
-                            <button
-                              onClick={() => archiveTool(tool.id)}
-                              className="text-xs text-gray-600 hover:text-gray-800 font-medium"
-                            >
-                              Archive
-                            </button>
-                          </div>
-                        </td>
-                      </>
-                    ) : (
-                      <>
-                        <td className="py-3 px-6 text-sm text-gray-800">
-                          {tool.name}
-                        </td>
-                        <td className="py-3 px-6 text-sm text-gray-800 capitalize">
-                          {tool.category}
-                        </td>
-                        <td className="py-3 px-6 text-sm text-gray-800">
-                          {tool.quantity}
-                        </td>
-                        <td className="py-3 px-6 text-sm text-gray-800">
-                          {tool.total}
-                        </td>
-                        <td className="py-3 px-6">
-                          <span
-                            className={`px-2 py-1 text-xs rounded-full ${
-                              getToolStatus(tool.status).color
-                            }`}
-                          >
-                            {getToolStatus(tool.status).text}
-                          </span>
-                        </td>
-                        <td className="py-3 px-6 text-sm text-gray-800">
-                          {tool.last_checked}
-                        </td>
-                        <td className="py-3 px-6">
-                          <div className="flex gap-2">
-                            <button
-                              onClick={() => {
-                                setEditTool(tool);
-                                setEditModalOpen(true);
-                              }}
-                              className="text-xs text-teal-600 hover:text-teal-800 font-medium"
-                            >
-                              Edit
-                            </button>
-                            <button
-                              onClick={() => deleteTool(tool.id)}
-                              className="text-xs text-red-600 hover:text-red-800 font-medium"
-                            >
-                              Delete
-                            </button>
-                            <button
-                              onClick={() => archiveTool(tool.id)}
-                              className="text-xs text-gray-600 hover:text-gray-800 font-medium"
-                            >
-                              Archive
-                            </button>
-                          </div>
-                        </td>
-                      </>
+                  <tr key={tool.id} className="border-b border-gray-100 hover:bg-pink-50 transition-colors duration-200">
+                    <td className="py-3 px-6 text-sm text-gray-800">{tool.name}</td>
+                    {!showSimplifiedColumns && (
+                      <td className="py-3 px-6 text-sm text-gray-800 capitalize">{tool.category}</td>
                     )}
+                    <td className="py-3 px-6 text-sm text-gray-800">{tool.quantity}</td>
+                    <td className="py-3 px-6 text-sm text-gray-800">{tool.total}</td>
+                    <td className="py-3 px-6">
+                      <span className={`px-2 py-1 text-xs rounded-full ${getToolStatus(tool.status).color}`}>
+                        {getToolStatus(tool.status).text}
+                      </span>
+                    </td>
+                    {!showSimplifiedColumns && <td className="py-3 px-6 text-sm text-gray-800">{tool.last_checked}</td>}
+                    <td className="py-3 px-6">
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => {
+                            setEditTool(tool);
+                            setEditModalOpen(true);
+                          }}
+                          className="text-xs text-teal-600 hover:text-teal-800 font-medium"
+                        >
+                          Edit
+                        </button>
+                        {userRole === "super_admin" && (
+                          <button
+                            onClick={() => deleteTool(tool.id)}
+                            className="text-xs text-red-600 hover:text-red-800 font-medium"
+                          >
+                            Delete
+                          </button>
+                        )}
+                        <button
+                          onClick={() => archiveTool(tool.id)}
+                          className="text-xs text-gray-600 hover:text-gray-800 font-medium"
+                        >
+                          Archive
+                        </button>
+                      </div>
+                    </td>
                   </tr>
                 ))}
                 {filteredTools.length === 0 && (
                   <tr>
-                    <td
-                      colSpan={showSimplifiedColumns ? 5 : 7}
-                      className="py-8 text-center text-gray-500"
-                    >
+                    <td colSpan={showSimplifiedColumns ? 5 : 7} className="py-8 text-center text-gray-500">
                       No tools found in this category.
                     </td>
                   </tr>
@@ -421,36 +335,20 @@ export default function ToolInventory() {
           {/* Summary Cards */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mt-8">
             <div className="bg-white rounded-lg shadow-md p-6 border-l-4 border-teal-500 hover:bg-pink-50 transition-colors duration-200">
-              <p className="text-sm text-gray-600 font-medium">
-                Total Tools
-              </p>
-              <p className="text-2xl font-bold text-gray-800 mt-2">
-                {tools.length}
-              </p>
+              <p className="text-sm text-gray-600 font-medium">Total Tools</p>
+              <p className="text-2xl font-bold text-gray-800 mt-2">{tools.length}</p>
             </div>
             <div className="bg-white rounded-lg shadow-md p-6 border-l-4 border-green-500 hover:bg-pink-50 transition-colors duration-200">
-              <p className="text-sm text-gray-600 font-medium">
-                Kitchen Tools
-              </p>
-              <p className="text-2xl font-bold text-gray-800 mt-2">
-                {kitchenTools.length}
-              </p>
+              <p className="text-sm text-gray-600 font-medium">Kitchen Tools</p>
+              <p className="text-2xl font-bold text-gray-800 mt-2">{kitchenTools.length}</p>
             </div>
             <div className="bg-white rounded-lg shadow-md p-6 border-l-4 border-blue-500 hover:bg-pink-50 transition-colors duration-200">
-              <p className="text-sm text-gray-600 font-medium">
-                Bar Tools
-              </p>
-              <p className="text-2xl font-bold text-gray-800 mt-2">
-                {barTools.length}
-              </p>
+              <p className="text-sm text-gray-600 font-medium">Bar Tools</p>
+              <p className="text-2xl font-bold text-gray-800 mt-2">{barTools.length}</p>
             </div>
             <div className="bg-white rounded-lg shadow-md p-6 border-l-4 border-purple-500 hover:bg-pink-50 transition-colors duration-200">
-              <p className="text-sm text-gray-600 font-medium">
-                Baking Tools
-              </p>
-              <p className="text-2xl font-bold text-gray-800 mt-2">
-                {bakingTools.length}
-              </p>
+              <p className="text-sm text-gray-600 font-medium">Baking Tools</p>
+              <p className="text-2xl font-bold text-gray-800 mt-2">{bakingTools.length}</p>
             </div>
           </div>
         </div>

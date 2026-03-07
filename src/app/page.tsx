@@ -55,7 +55,7 @@ export default function AdminLoginPage() {
     }
 
     // 3️⃣ Check role
-    if (profile.role !== "admin") {
+    if (profile.role !== "admin" && profile.role !== "super_admin") {
       await supabase.auth.signOut();
       setError("You are not authorized to access the admin dashboard.");
       return;
