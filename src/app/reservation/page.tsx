@@ -19,6 +19,7 @@ interface CheckInItem {
   date: string;
   time: string;
   isEarly?: boolean;
+  status?: 'pending' | 'checked_in' | 'checked_out'; // add status
 }
 
 interface CheckOutItem {
@@ -27,6 +28,7 @@ interface CheckOutItem {
   date: string;
   time: string;
   isEarly?: boolean;
+  status?: 'checked_in' | 'checked_out'; // add status
 }
 
 interface RoomItem {
@@ -86,61 +88,69 @@ export default function ReservationManagement() {
   // ---------------------
   // Fetch Reservations
   // ---------------------
-  const fetchReservations = async () => {
-    setLoadingReservations(true);
-    try {
-      const { data: bookingsData, error } = await supabase
-        .from('bookings')
-        .select(`
-          id,
-          start_at,
-          end_at,
-          status,
-          user_id,
-          room_id,
-          users!bookings_user_id_fkey(fname, lname),
-          rooms!bookings_room_id_fkey(room_number)
-        `);
+const fetchReservations = async () => {
+  setLoadingReservations(true);
+  try {
+    const { data: bookingsData, error } = await supabase
+      .from('bookings')
+      .select(`
+        id,
+        start_at,
+        end_at,
+        status,
+        early_checkin,
+        early_checkout,
+        user_id,
+        room_id,
+        users!bookings_user_id_fkey(fname, lname),
+        rooms!bookings_room_id_fkey(room_number)
+      `);
 
-      if (error) throw error;
+    if (error) throw error;
 
-      const pending: ReservationItem[] = [];
-      const checkin: CheckInItem[] = [];
-      const checkout: CheckOutItem[] = [];
+    const pending: ReservationItem[] = [];
+    const checkin: CheckInItem[] = [];
+    const checkout: CheckOutItem[] = [];
 
-      bookingsData?.forEach((b: any) => {
-        const guestName = b.users ? `${b.users.fname} ${b.users.lname}` : 'Unknown';
-        const roomNumber = b.rooms?.room_number || 'Unknown';
-        const startDate = new Date(b.start_at);
-        const endDate = new Date(b.end_at);
+    bookingsData?.forEach((b: any) => {
+      const guestName = b.users ? `${b.users.fname} ${b.users.lname}` : 'Unknown';
+      const startDate = new Date(b.start_at);
+      const endDate = new Date(b.end_at);
 
-        const dateStr = startDate.toLocaleDateString();
-        const timeStr = startDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        const endDateStr = endDate.toLocaleDateString();
-        const endTimeStr = endDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const startDateStr = startDate.toLocaleDateString();
+      const startTimeStr = startDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const endDateStr = endDate.toLocaleDateString();
+      const endTimeStr = endDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-        switch (b.status) {
-          case 'pending':
-            pending.push({ id: b.id, guest: guestName, date: dateStr, time: timeStr });
-            break;
-          case 'checked_in':
-            checkin.push({ id: b.id, guest: guestName, date: dateStr, time: timeStr, isEarly: false });
-            break;
-          case 'checked_out':
-            checkout.push({ id: b.id, guest: roomNumber, date: endDateStr, time: endTimeStr, isEarly: false });
-            break;
-        }
-      });
+    switch (b.status) {
+  case 'pending':
+    // pending array uses ReservationItem type, which has no 'status'
+    pending.push({ id: b.id, guest: guestName, date: startDateStr, time: startTimeStr });
 
-      setReservations(pending);
-      setCheckIns(checkin);
-      setCheckOuts(checkout);
-    } catch (error) {
-      console.error('Error fetching reservations:', error);
-    } finally {
-      setLoadingReservations(false);
-    }
-  };
+    // checkIn array uses CheckInItem type, which has 'status'
+    checkin.push({ id: b.id, guest: guestName, date: startDateStr, time: startTimeStr, isEarly: false, status: 'pending' });
+    break;
+
+  case 'checked_in':
+    checkin.push({ id: b.id, guest: guestName, date: startDateStr, time: startTimeStr, isEarly: b.early_checkin, status: 'checked_in' });
+    checkout.push({ id: b.id, guest: guestName, date: endDateStr, time: endTimeStr, isEarly: b.early_checkout ?? false, status: 'checked_in' });
+    break;
+
+  case 'checked_out':
+    checkout.push({ id: b.id, guest: guestName, date: endDateStr, time: endTimeStr, isEarly: b.early_checkout, status: 'checked_out' });
+    break;
+}
+    });
+
+    setReservations(pending);
+    setCheckIns(checkin);
+    setCheckOuts(checkout);
+  } catch (error) {
+    console.error('Error fetching reservations:', error);
+  } finally {
+    setLoadingReservations(false);
+  }
+};
 
   // ---------------------
   // Fetch Rooms
@@ -209,32 +219,108 @@ export default function ReservationManagement() {
   // ---------------------
   // Actions
   // ---------------------
-  const handleAccept = async (id: number) => {
-    await supabase.from('bookings').update({ status: 'checked_in' }).eq('id', id);
-    const userId = await getCurrentUserId();
-    await supabase.from('booking_logs').insert({ booking_id: id, action: 'Accepted', performed_by: userId });
-    fetchReservations();
-  };
+ const handleAccept = async (id: number) => {
+  const userId = await getCurrentUserId();
+  if (!userId) return; // safety check
 
-  const handleDecline = async (id: number) => {
+  const now = new Date().toISOString();
+
+  // Fetch booking
+  const { data: booking, error: fetchError } = await supabase
+    .from('bookings')
+    .select('start_at')
+    .eq('id', id)
+    .single();
+
+  if (fetchError || !booking) {
+    console.error('Booking not found or error fetching booking:', fetchError);
+    return;
+  }
+
+  // Determine early check-in
+  const isEarly = booking.start_at ? new Date(now) < new Date(booking.start_at) : false;
+
+  // Update booking
+  const { error: updateError } = await supabase
+    .from('bookings')
+    .update({ 
+      status: 'checked_in', 
+      checked_in_at: now, 
+      early_checkin: isEarly 
+    })
+    .eq('id', id);
+
+  if (updateError) {
+    console.error('Error updating booking:', updateError);
+    return;
+  }
+
+  // Log action
+  const { error: logError } = await supabase.from('booking_logs').insert({
+    booking_id: id,
+    action: isEarly ? 'Early Check-in' : 'Checked-in',
+    performed_by: userId
+  });
+
+  if (logError) console.error('Error logging check-in:', logError);
+
+  fetchReservations();
+};
+
+const handleCheckOut = async (id: number) => {
+  const userId = await getCurrentUserId();
+  if (!userId) return; // safety check
+
+  const now = new Date().toISOString();
+
+  // Fetch booking
+  const { data: booking, error: fetchError } = await supabase
+    .from('bookings')
+    .select('end_at')
+    .eq('id', id)
+    .single();
+
+  if (fetchError || !booking) {
+    console.error('Booking not found or error fetching booking:', fetchError);
+    return;
+  }
+
+  // Determine early check-out
+  const isEarly = booking.end_at ? new Date(now) < new Date(booking.end_at) : false;
+
+  // Update booking
+  const { error: updateError } = await supabase
+    .from('bookings')
+    .update({ 
+      status: 'checked_out', 
+      checked_out_at: now, 
+      early_checkout: isEarly 
+    })
+    .eq('id', id);
+
+  if (updateError) {
+    console.error('Error updating booking:', updateError);
+    return;
+  }
+
+  // Log action
+  const { error: logError } = await supabase.from('booking_logs').insert({
+    booking_id: id,
+    action: isEarly ? 'Early Check-out' : 'Checked-out',
+    performed_by: userId
+  });
+
+  if (logError) console.error('Error logging check-out:', logError);
+
+  fetchReservations();
+};
+
+    const handleDecline = async (id: number) => {
     await supabase.from('bookings').update({ status: 'declined' }).eq('id', id);
     const userId = await getCurrentUserId();
     await supabase.from('booking_logs').insert({ booking_id: id, action: 'Declined', performed_by: userId });
     fetchReservations();
   };
-
-  const handleEarlyCheckIn = async (id: number) => {
-    const userId = await getCurrentUserId();
-    await supabase.from('booking_logs').insert({ booking_id: id, action: 'Early Check-in', performed_by: userId });
-    setCheckIns(prev => prev.map(item => item.id === id ? { ...item, isEarly: true } : item));
-  };
-
-  const handleEarlyCheckOut = async (id: number) => {
-    const userId = await getCurrentUserId();
-    await supabase.from('booking_logs').insert({ booking_id: id, action: 'Early Check-out', performed_by: userId });
-    setCheckOuts(prev => prev.map(item => item.id === id ? { ...item, isEarly: true } : item));
-  };
-
   // ---------------------
   // Room Change
   // ---------------------
@@ -357,126 +443,141 @@ export default function ReservationManagement() {
                 </div>
               )}
 
-              {/* Check-Ins Tab */}
-              {activeTab === 'checkins' && (
-                <div className="overflow-x-auto">
-                  {loadingReservations ? (
-                    <div className="flex justify-center items-center h-40 sm:h-48">
-                      <div className="w-8 h-8 sm:w-10 sm:h-10 border-4 border-pink-600 border-t-transparent rounded-full animate-spin"></div>
-                    </div>
-                  ) : checkIns.length > 0 ? (
-                    <div className="min-w-full">
-                      <table className="w-full text-xs sm:text-sm md:text-base">
-                        <thead>
-                          <tr className="border-b-2 border-gray-200 text-gray-600">
-                            <th className="text-left py-2 sm:py-3 px-2 sm:px-3 md:px-4">Guest</th>
-                            <th className="text-left py-2 sm:py-3 px-2 sm:px-3 md:px-4 hidden sm:table-cell">Date</th>
-                            <th className="text-left py-2 sm:py-3 px-2 sm:px-3 md:px-4 hidden md:table-cell">Time</th>
-                            <th className="text-left py-2 sm:py-3 px-2 sm:px-3 md:px-4 sm:hidden">Details</th>
-                            <th className="text-left py-2 sm:py-3 px-2 sm:px-3 md:px-4">Status</th>
-                            <th className="text-left py-2 sm:py-3 px-2 sm:px-3 md:px-4">Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {checkIns.map(item => (
-                            <tr key={item.id} className="border-b border-gray-100 hover:bg-purple-50 transition-colors">
-                              <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4 text-gray-800 truncate max-w-[100px] sm:max-w-[150px]">
-                                {item.guest}
-                              </td>
-                              <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4 hidden sm:table-cell text-gray-600">{item.date}</td>
-                              <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4 hidden md:table-cell text-gray-600">{item.time}</td>
-                              <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4 sm:hidden text-xs text-gray-600">
-                                {item.date} {item.time}
-                              </td>
-                              <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4">
-                                {item.isEarly ? (
-                                  <span className="px-2 py-1 bg-purple-100 text-purple-700 text-xs font-medium rounded">Early</span>
-                                ) : (
-                                  <span className="px-2 py-1 bg-blue-100 text-blue-700 text-xs font-medium rounded">Regular</span>
-                                )}
-                              </td>
-                              <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4">
-                                {!item.isEarly && (
-                                  <button 
-                                    onClick={() => handleEarlyCheckIn(item.id)} 
-                                    className="px-2 sm:px-3 py-1 bg-purple-500 text-white text-xs font-medium rounded hover:bg-purple-600 transition-colors whitespace-nowrap"
-                                  >
-                                    Early
-                                  </button>
-                                )}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  ) : (
-                    <div className="text-center py-6 sm:py-8 md:py-10">
-                      <p className="text-sm text-gray-500">No check-ins</p>
-                    </div>
-                  )}
-                </div>
-              )}
+       {/* Check-Ins Tab */}
+{activeTab === 'checkins' && (
+  <div className="overflow-x-auto">
+    {loadingReservations ? (
+      <div className="flex justify-center items-center h-40 sm:h-48">
+        <div className="w-8 h-8 sm:w-10 sm:h-10 border-4 border-pink-600 border-t-transparent rounded-full animate-spin"></div>
+      </div>
+    ) : checkIns.length > 0 ? (
+      <div className="min-w-full">
+        <table className="w-full text-xs sm:text-sm md:text-base">
+          <thead>
+            <tr className="border-b-2 border-gray-200 text-gray-600">
+              <th className="text-left py-2 sm:py-3 px-2 sm:px-3 md:px-4">Guest</th>
+              <th className="text-left py-2 sm:py-3 px-2 sm:px-3 md:px-4 hidden sm:table-cell">Date</th>
+              <th className="text-left py-2 sm:py-3 px-2 sm:px-3 md:px-4 hidden md:table-cell">Time</th>
+              <th className="text-left py-2 sm:py-3 px-2 sm:px-3 md:px-4 sm:hidden">Details</th>
+              <th className="text-left py-2 sm:py-3 px-2 sm:px-3 md:px-4">Status</th>
+              <th className="text-left py-2 sm:py-3 px-2 sm:px-3 md:px-4">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {checkIns.map(item => {
+              const status = item.status === 'checked_in'
+                ? item.isEarly ? 'Early Check-In' : 'Checked-In'
+                : 'Pending Check-In';
 
-              {/* Check-Outs Tab */}
-              {activeTab === 'checkouts' && (
-                <div className="overflow-x-auto">
-                  {loadingReservations ? (
-                    <div className="flex justify-center items-center h-40 sm:h-48">
-                      <div className="w-8 h-8 sm:w-10 sm:h-10 border-4 border-pink-600 border-t-transparent rounded-full animate-spin"></div>
-                    </div>
-                  ) : checkOuts.length > 0 ? (
-                    <div className="min-w-full">
-                      <table className="w-full text-xs sm:text-sm md:text-base">
-                        <thead>
-                          <tr className="border-b-2 border-gray-200 text-gray-600">
-                            <th className="text-left py-2 sm:py-3 px-2 sm:px-3 md:px-4">Room</th>
-                            <th className="text-left py-2 sm:py-3 px-2 sm:px-3 md:px-4 hidden sm:table-cell">Date</th>
-                            <th className="text-left py-2 sm:py-3 px-2 sm:px-3 md:px-4 hidden md:table-cell">Time</th>
-                            <th className="text-left py-2 sm:py-3 px-2 sm:px-3 md:px-4 sm:hidden">Details</th>
-                            <th className="text-left py-2 sm:py-3 px-2 sm:px-3 md:px-4">Status</th>
-                            <th className="text-left py-2 sm:py-3 px-2 sm:px-3 md:px-4">Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {checkOuts.map(item => (
-                            <tr key={item.id} className="border-b border-gray-100 hover:bg-orange-50 transition-colors">
-                              <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4 font-medium text-gray-900">{item.guest}</td>
-                              <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4 hidden sm:table-cell text-gray-600">{item.date}</td>
-                              <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4 hidden md:table-cell text-gray-600">{item.time}</td>
-                              <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4 sm:hidden text-xs text-gray-600">
-                                {item.date} {item.time}
-                              </td>
-                              <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4">
-                                {item.isEarly ? (
-                                  <span className="px-2 py-1 bg-orange-100 text-orange-700 text-xs font-medium rounded">Early</span>
-                                ) : (
-                                  <span className="px-2 py-1 bg-blue-100 text-blue-700 text-xs font-medium rounded">Regular</span>
-                                )}
-                              </td>
-                              <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4">
-                                {!item.isEarly && (
-                                  <button 
-                                    onClick={() => handleEarlyCheckOut(item.id)} 
-                                    className="px-2 sm:px-3 py-1 bg-orange-500 text-white text-xs font-medium rounded hover:bg-orange-600 transition-colors whitespace-nowrap"
-                                  >
-                                    Early
-                                  </button>
-                                )}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  ) : (
-                    <div className="text-center py-6 sm:py-8 md:py-10">
-                      <p className="text-sm text-gray-500">No check-outs</p>
-                    </div>
-                  )}
-                </div>
-              )}
+              const canCheckIn = item.status !== 'checked_in';
 
+              return (
+                <tr key={item.id} className="border-b border-gray-100 hover:bg-purple-50 transition-colors">
+                  <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4 text-gray-800 truncate max-w-[100px] sm:max-w-[150px]">
+                    {item.guest}
+                  </td>
+                  <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4 hidden sm:table-cell text-gray-600">{item.date}</td>
+                  <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4 hidden md:table-cell text-gray-600">{item.time}</td>
+                  <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4 sm:hidden text-xs text-gray-600">
+                    {item.date} {item.time}
+                  </td>
+                  <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4">
+                    <span className={`px-2 py-1 text-xs font-medium rounded ${
+                      item.isEarly ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
+                    }`}>
+                      {status}
+                    </span>
+                  </td>
+                  <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4">
+                    {canCheckIn && (
+                      <button
+                        onClick={() => handleAccept(item.id)}
+                        className="px-2 sm:px-3 py-1 bg-purple-500 text-white text-xs font-medium rounded hover:bg-purple-600 transition-colors whitespace-nowrap"
+                      >
+                        Check-In
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    ) : (
+      <div className="text-center py-6 sm:py-8 md:py-10">
+        <p className="text-sm text-gray-500">No check-ins available</p>
+      </div>
+    )}
+  </div>
+)}
+
+{/* Check-Outs Tab */}
+{activeTab === 'checkouts' && (
+  <div className="overflow-x-auto">
+    {loadingReservations ? (
+      <div className="flex justify-center items-center h-40 sm:h-48">
+        <div className="w-8 h-8 sm:w-10 sm:h-10 border-4 border-pink-600 border-t-transparent rounded-full animate-spin"></div>
+      </div>
+    ) : checkOuts.length > 0 ? (
+      <div className="min-w-full">
+        <table className="w-full text-xs sm:text-sm md:text-base">
+          <thead>
+            <tr className="border-b-2 border-gray-200 text-gray-600">
+              <th className="text-left py-2 sm:py-3 px-2 sm:px-3 md:px-4">Guest</th>
+              <th className="text-left py-2 sm:py-3 px-2 sm:px-3 md:px-4 hidden sm:table-cell">Date</th>
+              <th className="text-left py-2 sm:py-3 px-2 sm:px-3 md:px-4 hidden md:table-cell">Time</th>
+              <th className="text-left py-2 sm:py-3 px-2 sm:px-3 md:px-4 sm:hidden">Details</th>
+              <th className="text-left py-2 sm:py-3 px-2 sm:px-3 md:px-4">Status</th>
+              <th className="text-left py-2 sm:py-3 px-2 sm:px-3 md:px-4">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {checkOuts.map(item => {
+              const status = item.status === 'checked_out'
+                ? item.isEarly ? 'Early Check-Out' : 'Checked-Out'
+                : 'Pending Check-Out';
+
+              const canCheckOut = item.status === 'checked_in';
+
+              return (
+                <tr key={item.id} className="border-b border-gray-100 hover:bg-orange-50 transition-colors">
+                  <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4 font-medium text-gray-900">{item.guest}</td>
+                  <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4 hidden sm:table-cell text-gray-600">{item.date}</td>
+                  <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4 hidden md:table-cell text-gray-600">{item.time}</td>
+                  <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4 sm:hidden text-xs text-gray-600">
+                    {item.date} {item.time}
+                  </td>
+                  <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4">
+                    <span className={`px-2 py-1 text-xs font-medium rounded ${
+                      item.isEarly ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'
+                    }`}>
+                      {status}
+                    </span>
+                  </td>
+                  <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4">
+                    {canCheckOut && (
+                      <button
+                        onClick={() => handleCheckOut(item.id)}
+                        className="px-2 sm:px-3 py-1 bg-orange-500 text-white text-xs font-medium rounded hover:bg-orange-600 transition-colors whitespace-nowrap"
+                      >
+                        Check-Out
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    ) : (
+      <div className="text-center py-6 sm:py-8 md:py-10">
+        <p className="text-sm text-gray-500">No check-outs available</p>
+      </div>
+    )}
+  </div>
+)}
               {/* Room Management Tab */}
               {activeTab === 'rooms' && (
                 <div className="overflow-x-auto">
@@ -496,7 +597,7 @@ export default function ReservationManagement() {
                         <tbody>
                           {rooms.map(item => (
                             <tr key={item.id} className="border-b border-gray-100 hover:bg-teal-50 transition-colors">
-                              <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4 font-medium text-gray-900">{item.room_number}</td>
+                              <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4 font-medium text-gray-900">Room {item.room_number}</td>
                               <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4 text-gray-600">8AM - 10PM</td>
                             </tr>
                           ))}
@@ -529,7 +630,7 @@ export default function ReservationManagement() {
                 className="w-full sm:w-48 md:w-56 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-pink-500 hover:border-pink-300 transition-colors"
               >
                 {rooms.map(r => (
-                  <option key={r.id} value={r.room_number}>{r.room_number}</option>
+                  <option key={r.id} value={r.room_number}>Room {r.room_number}</option>
                 ))}
               </select>
             </div>
@@ -542,19 +643,11 @@ export default function ReservationManagement() {
               
               {/* Calendar Grid - Responsive */}
               <div className="grid grid-cols-7 gap-1 sm:gap-2 text-center">
-               {[
-                  { key: 'sun', label: 'S' },
-                  { key: 'mon', label: 'M' },
-                  { key: 'tue', label: 'T' },
-                  { key: 'wed', label: 'W' },
-                  { key: 'thu', label: 'T' },
-                  { key: 'fri', label: 'F' },
-                  { key: 'sat', label: 'S' },
-                ].map(day => (
-                  <div key={day.key}>
-                    {day.label}
-                  </div>
-                ))}
+               {['S','M','T','W','T','F','S'].map((day, index) => (
+  <div key={index} className="text-xs sm:text-sm font-semibold text-gray-600 py-1 sm:py-2">
+    {day}
+  </div>
+))}
                 {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(day => {
                   const isReserved = reservedDates.includes(day);
                   return (
