@@ -496,7 +496,7 @@ export default function ReservationManagement() {
                         <tbody>
                           {rooms.map(item => (
                             <tr key={item.id} className="border-b border-gray-100 hover:bg-teal-50 transition-colors">
-                              <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4 font-medium text-gray-900">Room {item.room_number}</td>
+                              <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4 font-medium text-gray-900">{item.room_number}</td>
                               <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4 text-gray-600">8AM - 10PM</td>
                             </tr>
                           ))}
@@ -529,7 +529,7 @@ export default function ReservationManagement() {
                 className="w-full sm:w-48 md:w-56 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-pink-500 hover:border-pink-300 transition-colors"
               >
                 {rooms.map(r => (
-                  <option key={r.id} value={r.room_number}>Room {r.room_number}</option>
+                  <option key={r.id} value={r.room_number}>{r.room_number}</option>
                 ))}
               </select>
             </div>
@@ -543,18 +543,18 @@ export default function ReservationManagement() {
               {/* Calendar Grid - Responsive */}
               <div className="grid grid-cols-7 gap-1 sm:gap-2 text-center">
                {[
-  { key: 'sun', label: 'S' },
-  { key: 'mon', label: 'M' },
-  { key: 'tue', label: 'T' },
-  { key: 'wed', label: 'W' },
-  { key: 'thu', label: 'T' },
-  { key: 'fri', label: 'F' },
-  { key: 'sat', label: 'S' },
-].map(day => (
-  <div key={day.key}>
-    {day.label}
-  </div>
-))}
+                  { key: 'sun', label: 'S' },
+                  { key: 'mon', label: 'M' },
+                  { key: 'tue', label: 'T' },
+                  { key: 'wed', label: 'W' },
+                  { key: 'thu', label: 'T' },
+                  { key: 'fri', label: 'F' },
+                  { key: 'sat', label: 'S' },
+                ].map(day => (
+                  <div key={day.key}>
+                    {day.label}
+                  </div>
+                ))}
                 {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(day => {
                   const isReserved = reservedDates.includes(day);
                   return (

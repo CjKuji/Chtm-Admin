@@ -188,7 +188,7 @@ export default function RoomsInventory() {
                     />
                     <div className="p-3 sm:p-4">
                       <h3 className="text-base sm:text-lg font-semibold text-gray-800 mb-2">
-                        Room {room.room_number} - {room.room_type?.name ?? 'Unknown'}
+                        {room.room_number} - {room.room_type?.name ?? 'Unknown'}
                       </h3>
                       <p className="text-xs sm:text-sm text-gray-600 mb-3 sm:mb-4">
                         {room.room_type?.description ?? 'No description available.'}
