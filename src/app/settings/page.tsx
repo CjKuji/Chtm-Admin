@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Sidebar from '@/app/components/Sidebar';
 import Topbar from '@/app/components/Topbar';
+import { useSidebar } from '@/app/context/SidebarContext';
 
 type NotificationKey = 'checkIns' | 'checkOuts' | 'reservations' | 'ratings';
 type AppearanceKey = 'darkMode';
@@ -19,9 +20,25 @@ interface AppearanceState {
 }
 
 export default function SystemSettings() {
+  const { collapsed } = useSidebar();
+  const [isMobile, setIsMobile] = useState(false);
+  const [isTablet, setIsTablet] = useState(false);
   const [activeTab, setActiveTab] = useState('notifications');
   const [twoFactorEnabled, setTwoFactorEnabled] = useState(true);
   const [loginAlertEnabled, setLoginAlertEnabled] = useState(true);
+
+  // Check screen size with multiple breakpoints
+  useEffect(() => {
+    const checkScreenSize = () => {
+      const width = window.innerWidth;
+      setIsMobile(width < 640);
+      setIsTablet(width >= 640 && width < 1024);
+    };
+    
+    checkScreenSize();
+    window.addEventListener('resize', checkScreenSize);
+    return () => window.removeEventListener('resize', checkScreenSize);
+  }, []);
 
   const [notifications, setNotifications] = useState<NotificationsState>({
     checkIns: true,
@@ -83,43 +100,55 @@ export default function SystemSettings() {
     <div className="flex min-h-screen bg-gray-50">
       <Sidebar activeMenu="settings" />
 
-      <main className="flex-1 ml-64">
-        <Topbar />
+      <main className={`
+        flex-1 transition-all duration-300 w-full
+        ${isMobile ? 'ml-0' : collapsed ? 'lg:ml-20' : 'lg:ml-64'}
+      `}>
+        <div className="w-full">
+          <Topbar />
+        </div>
 
-        <div className="p-6">
-          <div className="flex justify-between items-center mb-6">
-            <h1 className="text-2xl font-bold text-gray-800">Settings</h1>
-            <button className="px-4 py-2 bg-teal-600 text-white rounded-lg text-sm font-medium hover:bg-teal-700">
+        <div className="px-3 sm:px-4 md:px-6 lg:px-8 xl:px-10 py-4 sm:py-6 md:py-8 max-w-7xl mx-auto">
+          {/* Header - Increased margin to drag title down */}
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 md:mb-10 gap-4 mt-24 sm:mt-32">
+            <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-gray-800">
+              Settings
+            </h1>
+            <button className="w-full sm:w-auto px-4 py-2 bg-teal-600 text-white rounded-lg text-sm sm:text-base font-medium hover:bg-teal-700 transition-colors min-w-[120px]">
               Save Changes
             </button>
           </div>
 
-          <div className="bg-white rounded-lg shadow-md">
-            {/* Tabs */}
-            <div className="flex border-b border-gray-200">
+          <div className="bg-white rounded-xl shadow-md hover:shadow-lg transition-shadow duration-200">
+            {/* Tabs - Fully responsive */}
+            <div className="flex border-b border-gray-200 overflow-x-auto hide-scrollbar">
               {tabs.map((tab) => (
                 <button
                   key={tab.id}
                   type="button"
                   onClick={() => setActiveTab(tab.id)}
-                  className={`flex items-center gap-2 px-4 py-3 text-sm font-medium transition ${
+                  className={`flex items-center gap-1 sm:gap-2 px-4 sm:px-5 md:px-6 py-3 sm:py-4 text-xs sm:text-sm md:text-base font-medium transition whitespace-nowrap ${
                     activeTab === tab.id
-                      ? 'border-b-2 border-pink-600 text-pink-600'
-                      : 'text-gray-600 hover:text-gray-800'
+                      ? 'border-b-2 border-pink-600 text-pink-600 bg-pink-50'
+                      : 'text-gray-600 hover:text-gray-800 hover:bg-gray-50'
                   }`}
                 >
-                  <span>{tab.icon}</span>
-                  {tab.label}
+                  <span className="text-sm sm:text-base">{tab.icon}</span>
+                  <span className={isMobile ? 'hidden' : 'inline'}>{tab.label}</span>
+                  {isMobile && <span className="sr-only">{tab.label}</span>}
                 </button>
               ))}
             </div>
 
-            {/* Notifications */}
+            {/* Notifications Tab */}
             {activeTab === 'notifications' && (
-              <div className="p-6 space-y-4">
+              <div className="p-4 sm:p-5 md:p-6 space-y-4 md:space-y-5">
                 {notifItems.map((item) => (
-                  <div key={item.key} className="flex justify-between">
-                    <span className="text-sm text-gray-700">{item.label}</span>
+                  <div 
+                    key={item.key} 
+                    className="flex flex-row justify-between items-center gap-4 py-2 border-b border-gray-100 last:border-0"
+                  >
+                    <span className="text-sm sm:text-base text-gray-700">{item.label}</span>
                     <Toggle
                       enabled={notifications[item.key]}
                       onClick={() => toggleNotification(item.key)}
@@ -129,30 +158,38 @@ export default function SystemSettings() {
               </div>
             )}
 
-            {/* Appearance */}
+            {/* Appearance Tab */}
             {activeTab === 'appearance' && (
-              <div className="p-6 flex justify-between">
-                <span className="text-sm text-gray-700">Dark Mode</span>
-                <Toggle
-                  enabled={appearance.darkMode}
-                  onClick={() => toggleAppearance('darkMode')}
-                />
+              <div className="p-4 sm:p-5 md:p-6">
+                <div className="flex flex-row justify-between items-center gap-4 py-2">
+                  <span className="text-sm sm:text-base text-gray-700">Dark Mode</span>
+                  <Toggle
+                    enabled={appearance.darkMode}
+                    onClick={() => toggleAppearance('darkMode')}
+                  />
+                </div>
               </div>
             )}
 
-            {/* Admin */}
+            {/* Admin Tab */}
             {activeTab === 'admin' && (
-              <div className="p-6 space-y-6">
-                <div className="flex justify-between">
-                  <span>Two-Factor Authentication</span>
+              <div className="p-4 sm:p-5 md:p-6 space-y-5 md:space-y-6">
+                <div className="flex flex-row justify-between items-center gap-4 py-2 border-b border-gray-100">
+                  <div>
+                    <span className="text-sm sm:text-base text-gray-700 block">Two-Factor Authentication</span>
+                    <span className="text-xs text-gray-500 mt-1 hidden sm:block">Add an extra layer of security</span>
+                  </div>
                   <Toggle
                     enabled={twoFactorEnabled}
                     onClick={() => setTwoFactorEnabled(!twoFactorEnabled)}
                   />
                 </div>
 
-                <div className="flex justify-between">
-                  <span>Login Alerts</span>
+                <div className="flex flex-row justify-between items-center gap-4 py-2">
+                  <div>
+                    <span className="text-sm sm:text-base text-gray-700 block">Login Alerts</span>
+                    <span className="text-xs text-gray-500 mt-1 hidden sm:block">Get notified of new sign-ins</span>
+                  </div>
                   <Toggle
                     enabled={loginAlertEnabled}
                     onClick={() => setLoginAlertEnabled(!loginAlertEnabled)}
@@ -161,6 +198,22 @@ export default function SystemSettings() {
               </div>
             )}
           </div>
+
+          {/* Quick Settings Summary - Mobile Only */}
+          {isMobile && (
+            <div className="mt-6 grid grid-cols-2 gap-3">
+              <div className="bg-teal-50 p-3 rounded-lg text-center">
+                <div className="text-xs text-teal-700 font-medium">Active Settings</div>
+                <div className="text-lg font-bold text-teal-800">
+                  {Object.values(notifications).filter(Boolean).length + (twoFactorEnabled ? 1 : 0) + (loginAlertEnabled ? 1 : 0)}
+                </div>
+              </div>
+              <div className="bg-pink-50 p-3 rounded-lg text-center">
+                <div className="text-xs text-pink-700 font-medium">Tabs</div>
+                <div className="text-lg font-bold text-pink-800">{tabs.length}</div>
+              </div>
+            </div>
+          )}
         </div>
       </main>
     </div>
