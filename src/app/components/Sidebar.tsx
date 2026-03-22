@@ -18,12 +18,9 @@ export default function Sidebar({ activeMenu = 'dashboard' }: SidebarProps) {
     const checkScreenSize = () => {
       const mobile = window.innerWidth < 768;
       setIsMobile(mobile);
-      // Auto close sidebar on mobile
-      if (mobile) {
-        setMobileOpen(false);
-      }
+      if (mobile) setMobileOpen(false);
     };
-    
+
     checkScreenSize();
     window.addEventListener('resize', checkScreenSize);
     return () => window.removeEventListener('resize', checkScreenSize);
@@ -37,11 +34,9 @@ export default function Sidebar({ activeMenu = 'dashboard' }: SidebarProps) {
     { id: 'settings', label: 'System Settings', icon: '⚙' },
   ];
 
-  const getHref = (id: string) => {
-    return id === 'dashboard' ? '/dashboard' : `/${id}`;
-  };
+  const getHref = (id: string) => (id === 'dashboard' ? '/dashboard' : `/${id}`);
 
-  // Mobile menu button (always visible on mobile)
+  // Mobile menu button
   const MobileMenuButton = () => (
     <button
       onClick={() => setMobileOpen(true)}
@@ -54,22 +49,14 @@ export default function Sidebar({ activeMenu = 'dashboard' }: SidebarProps) {
     </button>
   );
 
-  // Don't render full sidebar on mobile if not open
+  // Mobile sidebar
   if (isMobile) {
     return (
       <>
         <MobileMenuButton />
-        
-        {/* Mobile Sidebar - Slide out panel */}
         {mobileOpen && (
           <>
-            {/* Overlay */}
-            <div
-              className="fixed inset-0 bg-black bg-opacity-50 z-50"
-              onClick={() => setMobileOpen(false)}
-            />
-            
-            {/* Sidebar */}
+            <div className="fixed inset-0 bg-black bg-opacity-50 z-50" onClick={() => setMobileOpen(false)} />
             <div className="fixed left-0 top-0 bottom-0 w-64 bg-gradient-to-b from-teal-900 to-teal-800 text-white z-50 overflow-y-auto shadow-xl animate-slide-in">
               <div className="p-4 border-b border-teal-700">
                 <div className="flex items-center justify-between">
@@ -90,9 +77,7 @@ export default function Sidebar({ activeMenu = 'dashboard' }: SidebarProps) {
               </div>
 
               <div className="py-4 px-2">
-                <p className="text-xs font-semibold text-teal-300 uppercase px-2 mb-2 tracking-wider">
-                  Main
-                </p>
+                <p className="text-xs font-semibold text-teal-300 uppercase px-2 mb-2 tracking-wider">Main</p>
                 <nav className="space-y-2">
                   {menuItems.map((item) => (
                     <Link
@@ -131,17 +116,23 @@ export default function Sidebar({ activeMenu = 'dashboard' }: SidebarProps) {
     >
       <div className="p-4 border-b border-teal-700">
         <div className="flex items-center justify-between">
-          {!collapsed && (
+          {!collapsed ? (
             <div>
               <h1 className="text-xl font-bold tracking-tight">CHTM RRS</h1>
               <p className="text-xs text-teal-200 font-medium tracking-wider">HOTEL MANAGEMENT</p>
             </div>
-          )}
-          {collapsed && (
+          ) : (
             <div className="w-full flex justify-center">
               <h1 className="text-xl font-bold tracking-tight">🏨</h1>
             </div>
           )}
+          <button
+            onClick={toggleSidebar}
+            className="p-1 hover:bg-teal-700 rounded transition-colors duration-200"
+            aria-label="Toggle sidebar"
+          >
+            {collapsed ? '➡️' : '⬅️'}
+          </button>
         </div>
       </div>
 
@@ -162,9 +153,7 @@ export default function Sidebar({ activeMenu = 'dashboard' }: SidebarProps) {
               title={collapsed ? item.label : ''}
             >
               <span className="text-lg">{item.icon}</span>
-              {!collapsed && (
-                <span className="flex-1 text-sm antialiased">{item.label}</span>
-              )}
+              {!collapsed && <span className="flex-1 text-sm antialiased">{item.label}</span>}
             </Link>
           ))}
         </nav>

@@ -41,7 +41,7 @@ export default function ReservationManagement() {
   const { collapsed } = useSidebar();
   const [activeTab, setActiveTab] = useState('reservations');
   const [isMobile, setIsMobile] = useState(false);
-  const [isTablet, setIsTablet] = useState(false);
+  const [_isTablet, setIsTablet] = useState(false);
 
   const [reservations, setReservations] = useState<ReservationItem[]>([]);
   const [checkIns, setCheckIns] = useState<CheckInItem[]>([]);

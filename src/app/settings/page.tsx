@@ -22,7 +22,7 @@ interface AppearanceState {
 export default function SystemSettings() {
   const { collapsed } = useSidebar();
   const [isMobile, setIsMobile] = useState(false);
-  const [isTablet, setIsTablet] = useState(false);
+  const [_isTablet, setIsTablet] = useState(false);
   const [activeTab, setActiveTab] = useState('notifications');
   const [twoFactorEnabled, setTwoFactorEnabled] = useState(true);
   const [loginAlertEnabled, setLoginAlertEnabled] = useState(true);
@@ -72,44 +72,51 @@ export default function SystemSettings() {
     { key: 'ratings', label: 'Ratings' },
   ];
 
-  // ✅ Reusable toggle component
+  // ✅ ARIA-compliant Toggle component
   const Toggle = ({
     enabled,
     onClick,
+    label,
   }: {
     enabled: boolean;
     onClick: () => void;
-  }) => (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={enabled}
-      className={`relative w-12 h-6 rounded-full transition ${
-        enabled ? 'bg-teal-600' : 'bg-gray-300'
-      }`}
-    >
-      <div
-        className={`absolute w-4 h-4 bg-white rounded-full top-1 transition ${
-          enabled ? 'left-7' : 'left-1'
+    label?: string;
+  }) => {
+    const isPressed: boolean = Boolean(enabled); // ensure explicit boolean
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        aria-pressed={isPressed}
+        aria-label={label || (isPressed ? 'Enabled' : 'Disabled')}
+        className={`relative w-12 h-6 rounded-full transition ${
+          enabled ? 'bg-teal-600' : 'bg-gray-300'
         }`}
-      />
-    </button>
-  );
+      >
+        <div
+          className={`absolute w-4 h-4 bg-white rounded-full top-1 transition ${
+            enabled ? 'left-7' : 'left-1'
+          }`}
+        />
+      </button>
+    );
+  };
 
   return (
     <div className="flex min-h-screen bg-gray-50">
       <Sidebar activeMenu="settings" />
 
-      <main className={`
-        flex-1 transition-all duration-300 w-full
-        ${isMobile ? 'ml-0' : collapsed ? 'lg:ml-20' : 'lg:ml-64'}
-      `}>
+      <main
+        className={`flex-1 transition-all duration-300 w-full ${
+          isMobile ? 'ml-0' : collapsed ? 'lg:ml-20' : 'lg:ml-64'
+        }`}
+      >
         <div className="w-full">
           <Topbar />
         </div>
 
         <div className="px-3 sm:px-4 md:px-6 lg:px-8 xl:px-10 py-4 sm:py-6 md:py-8 max-w-7xl mx-auto">
-          {/* Header - Increased margin to drag title down */}
+          {/* Header */}
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 md:mb-10 gap-4 mt-24 sm:mt-32">
             <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-gray-800">
               Settings
@@ -120,7 +127,7 @@ export default function SystemSettings() {
           </div>
 
           <div className="bg-white rounded-xl shadow-md hover:shadow-lg transition-shadow duration-200">
-            {/* Tabs - Fully responsive */}
+            {/* Tabs */}
             <div className="flex border-b border-gray-200 overflow-x-auto hide-scrollbar">
               {tabs.map((tab) => (
                 <button
@@ -144,14 +151,15 @@ export default function SystemSettings() {
             {activeTab === 'notifications' && (
               <div className="p-4 sm:p-5 md:p-6 space-y-4 md:space-y-5">
                 {notifItems.map((item) => (
-                  <div 
-                    key={item.key} 
+                  <div
+                    key={item.key}
                     className="flex flex-row justify-between items-center gap-4 py-2 border-b border-gray-100 last:border-0"
                   >
                     <span className="text-sm sm:text-base text-gray-700">{item.label}</span>
                     <Toggle
                       enabled={notifications[item.key]}
                       onClick={() => toggleNotification(item.key)}
+                      label={item.label}
                     />
                   </div>
                 ))}
@@ -166,6 +174,7 @@ export default function SystemSettings() {
                   <Toggle
                     enabled={appearance.darkMode}
                     onClick={() => toggleAppearance('darkMode')}
+                    label="Dark Mode"
                   />
                 </div>
               </div>
@@ -176,23 +185,31 @@ export default function SystemSettings() {
               <div className="p-4 sm:p-5 md:p-6 space-y-5 md:space-y-6">
                 <div className="flex flex-row justify-between items-center gap-4 py-2 border-b border-gray-100">
                   <div>
-                    <span className="text-sm sm:text-base text-gray-700 block">Two-Factor Authentication</span>
-                    <span className="text-xs text-gray-500 mt-1 hidden sm:block">Add an extra layer of security</span>
+                    <span className="text-sm sm:text-base text-gray-700 block">
+                      Two-Factor Authentication
+                    </span>
+                    <span className="text-xs text-gray-500 mt-1 hidden sm:block">
+                      Add an extra layer of security
+                    </span>
                   </div>
                   <Toggle
                     enabled={twoFactorEnabled}
                     onClick={() => setTwoFactorEnabled(!twoFactorEnabled)}
+                    label="Two-Factor Authentication"
                   />
                 </div>
 
                 <div className="flex flex-row justify-between items-center gap-4 py-2">
                   <div>
                     <span className="text-sm sm:text-base text-gray-700 block">Login Alerts</span>
-                    <span className="text-xs text-gray-500 mt-1 hidden sm:block">Get notified of new sign-ins</span>
+                    <span className="text-xs text-gray-500 mt-1 hidden sm:block">
+                      Get notified of new sign-ins
+                    </span>
                   </div>
                   <Toggle
                     enabled={loginAlertEnabled}
                     onClick={() => setLoginAlertEnabled(!loginAlertEnabled)}
+                    label="Login Alerts"
                   />
                 </div>
               </div>
@@ -205,7 +222,9 @@ export default function SystemSettings() {
               <div className="bg-teal-50 p-3 rounded-lg text-center">
                 <div className="text-xs text-teal-700 font-medium">Active Settings</div>
                 <div className="text-lg font-bold text-teal-800">
-                  {Object.values(notifications).filter(Boolean).length + (twoFactorEnabled ? 1 : 0) + (loginAlertEnabled ? 1 : 0)}
+                  {Object.values(notifications).filter(Boolean).length +
+                    (twoFactorEnabled ? 1 : 0) +
+                    (loginAlertEnabled ? 1 : 0)}
                 </div>
               </div>
               <div className="bg-pink-50 p-3 rounded-lg text-center">
