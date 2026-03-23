@@ -331,32 +331,32 @@ const handleCheckOut = async (id: number) => {
     fetchReservations();
   };
 
- const handleArchive = async (id: number) => {
-  const userId = await getCurrentUserId();
-  if (!userId) return;
+//  const handleArchive = async (id: number) => {
+//   const userId = await getCurrentUserId();
+//   if (!userId) return;
 
-  // Update booking status to 'archived'
-  const { error: updateError } = await supabase
-    .from('bookings')
-    .update({ status: 'archived' })
-    .eq('id', id);
+//   // Update booking status to 'archived'
+//   const { error: updateError } = await supabase
+//     .from('bookings')
+//     .update({ status: 'archived' })
+//     .eq('id', id);
 
-  if (updateError) {
-    console.error('Error archiving booking:', updateError);
-    return;
-  }
+//   if (updateError) {
+//     console.error('Error archiving booking:', updateError);
+//     return;
+//   }
 
-  // Log the archive action
-  const { error: logError } = await supabase.from('booking_logs').insert({
-    booking_id: id,
-    action: 'Archived',
-    performed_by: userId
-  });
+//   // Log the archive action
+//   const { error: logError } = await supabase.from('booking_logs').insert({
+//     booking_id: id,
+//     action: 'Archived',
+//     performed_by: userId
+//   });
 
-  if (logError) console.error('Error logging archive action:', logError);
+//   if (logError) console.error('Error logging archive action:', logError);
 
-  fetchReservations();
-};
+//   fetchReservations();
+// };
   // ---------------------
   // Room Change
   // ---------------------
