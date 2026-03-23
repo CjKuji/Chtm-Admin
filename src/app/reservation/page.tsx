@@ -331,32 +331,95 @@ const handleCheckOut = async (id: number) => {
     fetchReservations();
   };
 
-//  const handleArchive = async (id: number) => {
-//   const userId = await getCurrentUserId();
-//   if (!userId) return;
+const handleArchive = async (bookingId: number) => {
+  try {
+    const userId = await getCurrentUserId();
+    if (!userId) return;
 
-//   // Update booking status to 'archived'
-//   const { error: updateError } = await supabase
-//     .from('bookings')
-//     .update({ status: 'archived' })
-//     .eq('id', id);
+    // 1️⃣ Fetch booking + related data
+    const [{ data: booking }, { data: logs }, { data: bookingAmenities }, { data: payments }] =
+      await Promise.all([
+        supabase.from('bookings').select('*').eq('id', bookingId).single(),
+        supabase.from('booking_logs').select('*').eq('booking_id', bookingId),
+        supabase.from('booking_amenities').select('amenity_id').eq('booking_id', bookingId),
+        supabase.from('payments').select('*').eq('booking_id', bookingId),
+      ]);
 
-//   if (updateError) {
-//     console.error('Error archiving booking:', updateError);
-//     return;
-//   }
+    if (!booking) {
+      console.error('Booking not found');
+      return;
+    }
 
-//   // Log the archive action
-//   const { error: logError } = await supabase.from('booking_logs').insert({
-//     booking_id: id,
-//     action: 'Archived',
-//     performed_by: userId
-//   });
+    // 2️⃣ Fetch full amenity details
+    const amenityIds = bookingAmenities?.map(a => a.amenity_id) || [];
+    let amenitiesData: any[] = [];
+    if (amenityIds.length > 0) {
+      const { data, error } = await supabase
+        .from('amenities')
+        .select('id, name, price')
+        .in('id', amenityIds);
+      if (error) throw error;
+      amenitiesData = data || [];
+    }
 
-//   if (logError) console.error('Error logging archive action:', logError);
+    // 3️⃣ Fetch user (guest) info
+    const { data: user } = await supabase
+      .from('users')
+      .select('fname, lname')
+      .eq('id', booking.user_id)
+      .single();
 
-//   fetchReservations();
-// };
+    // 4️⃣ Fetch room info
+    const { data: room } = await supabase
+      .from('rooms')
+      .select('room_number')
+      .eq('id', booking.room_id)
+      .single();
+
+    // 5️⃣ Insert into archived_bookings with full details
+    const { error: archiveError } = await supabase.from('archived_bookings').insert({
+      original_booking_id: booking.id,
+      user_id: booking.user_id,
+      guest_fname: user?.fname || 'Unknown',
+      guest_lname: user?.lname || 'Guest',
+      room_id: booking.room_id,
+      room_number: room?.room_number || 'N/A',
+      start_at: booking.start_at,
+      end_at: booking.end_at,
+      guests: booking.guests,
+      status: booking.status,
+      message: booking.message,           // store the booking message
+      checked_in_at: booking.checked_in_at,
+      checked_out_at: booking.checked_out_at,
+      price_at_booking: booking.price_at_booking,
+      total_amount: booking.total_amount,
+      early_checkin: booking.early_checkin,
+      early_checkout: booking.early_checkout,
+      created_at: booking.created_at,
+      logs: logs || [],                   // store booking logs
+      amenities: amenitiesData,           // store full amenity details
+      payments: payments || []            // store payments
+    });
+
+    if (archiveError) {
+      console.error('Error archiving booking', archiveError);
+      return;
+    }
+
+    // 6️⃣ Delete original records (only deletes booking-related info, not actual rooms/amenities)
+    await Promise.all([
+      supabase.from('booking_logs').delete().eq('booking_id', bookingId),
+      supabase.from('booking_amenities').delete().eq('booking_id', bookingId),
+      supabase.from('payments').delete().eq('booking_id', bookingId),
+      supabase.from('bookings').delete().eq('id', bookingId)
+    ]);
+
+    // 7️⃣ Refresh reservations list if needed
+    fetchReservations();
+  } catch (err) {
+    console.error('Error archiving booking', err);
+  }
+};
   // ---------------------
   // Room Change
   // ---------------------
@@ -577,7 +640,7 @@ const handleCheckOut = async (id: number) => {
                 : 'Pending Check-Out';
 
               const canCheckOut = item.status === 'checked_in';
-              // const canArchive = item.status === 'checked_out';
+              const canArchive = item.status === 'checked_out';
 
               return (
                 <tr key={item.id} className="border-b border-gray-100 hover:bg-orange-50 transition-colors">
@@ -603,14 +666,14 @@ const handleCheckOut = async (id: number) => {
                         Check-Out
                       </button>
                     )}
-                    {/* {canArchive && (
+                    {canArchive && (
                       <button
                         onClick={() => handleArchive(item.id)}
                         className="px-2 sm:px-3 py-1 bg-gray-500 text-white text-xs font-medium rounded hover:bg-gray-600 transition-colors whitespace-nowrap"
                       >
                         Archive
                       </button>
-                    )} */}
+                    )}
                   </td>
                 </tr>
               );

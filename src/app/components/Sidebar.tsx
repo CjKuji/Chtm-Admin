@@ -26,15 +26,22 @@ export default function Sidebar({ activeMenu = 'dashboard' }: SidebarProps) {
     return () => window.removeEventListener('resize', checkScreenSize);
   }, []);
 
-  const menuItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: '⊞' },
-    { id: 'reservation', label: 'Reservation', icon: '📅' },
-    { id: 'room', label: 'Room', icon: '🏠' },
-    { id: 'tools', label: 'Tool Inventory', icon: '🔧' },
-    { id: 'settings', label: 'System Settings', icon: '⚙' },
-  ];
+const menuItems = [
+  { id: 'dashboard', label: 'Dashboard', icon: '⊞' },
+  { id: 'reservation', label: 'Reservation', icon: '📅' },
+  { id: 'room', label: 'Room', icon: '🏠' },
+  { id: 'tools', label: 'Tool Inventory', icon: '🔧' },
+  { id: 'settings', label: 'System Settings', icon: '⚙' },
+  { id: 'archived', label: 'Archived', icon: '🗄️' }, // NEW
+];
 
-  const getHref = (id: string) => (id === 'dashboard' ? '/dashboard' : `/${id}`);
+ const getHref = (id: string) => {
+  switch (id) {
+    case 'dashboard': return '/dashboard';
+    case 'archived': return '/archived'; // NEW
+    default: return `/${id}`;
+  }
+};
 
   // Mobile menu button
   const MobileMenuButton = () => (
