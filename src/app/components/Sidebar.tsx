@@ -29,11 +29,11 @@ export default function Sidebar({ activeMenu = 'dashboard' }: SidebarProps) {
 const menuItems = [
   { id: 'dashboard', label: 'Dashboard', icon: '⊞' },
   { id: 'reservation', label: 'Reservation', icon: '📅' },
+   { id: 'archived', label: 'Archived', icon: '🗄️' },
   { id: 'room', label: 'Room', icon: '🏠' },
   { id: 'tools', label: 'Tool Inventory', icon: '🔧' },
   { id: 'settings', label: 'System Settings', icon: '⚙' },
-  { id: 'archived', label: 'Archived', icon: '🗄️' }, // NEW
-];
+ ];
 
  const getHref = (id: string) => {
   switch (id) {
