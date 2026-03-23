@@ -19,7 +19,7 @@ interface CheckInItem {
   date: string;
   time: string;
   isEarly?: boolean;
-  status?: 'pending' | 'checked_in' | 'checked_out'; // add status
+  status?: 'pending' | 'approved' | 'checked_in' | 'checked_out';
 }
 
 interface CheckOutItem {
@@ -122,21 +122,25 @@ const fetchReservations = async () => {
       const endDateStr = endDate.toLocaleDateString();
       const endTimeStr = endDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-    switch (b.status) {
+ switch (b.status) {
   case 'pending':
-    // pending array uses ReservationItem type, which has no 'status'
+    // only in Reservations tab
     pending.push({ id: b.id, guest: guestName, date: startDateStr, time: startTimeStr });
+    break;
 
-    // checkIn array uses CheckInItem type, which has 'status'
-    checkin.push({ id: b.id, guest: guestName, date: startDateStr, time: startTimeStr, isEarly: false, status: 'pending' });
+  case 'approved':
+    // moves to Check-In tab
+    checkin.push({ id: b.id, guest: guestName, date: startDateStr, time: startTimeStr, isEarly: false, status: 'approved' });
     break;
 
   case 'checked_in':
+    // stays in Check-In tab and also goes to Check-Out tab
     checkin.push({ id: b.id, guest: guestName, date: startDateStr, time: startTimeStr, isEarly: b.early_checkin, status: 'checked_in' });
     checkout.push({ id: b.id, guest: guestName, date: endDateStr, time: endTimeStr, isEarly: b.early_checkout ?? false, status: 'checked_in' });
     break;
 
   case 'checked_out':
+    // only in Check-Out tab
     checkout.push({ id: b.id, guest: guestName, date: endDateStr, time: endTimeStr, isEarly: b.early_checkout, status: 'checked_out' });
     break;
 }
@@ -221,48 +225,49 @@ const fetchReservations = async () => {
   // ---------------------
  const handleAccept = async (id: number) => {
   const userId = await getCurrentUserId();
-  if (!userId) return; // safety check
+  if (!userId) return;
+
+  const { error } = await supabase
+    .from('bookings')
+    .update({ status: 'approved' }) // just accept
+    .eq('id', id);
+
+  if (error) return console.error('Error accepting booking:', error);
+
+  await supabase.from('booking_logs').insert({
+    booking_id: id,
+    action: 'Approved',
+    performed_by: userId
+  });
+
+  fetchReservations();
+};
+
+const handleCheckIn = async (id: number) => {
+  const userId = await getCurrentUserId();
+  if (!userId) return;
 
   const now = new Date().toISOString();
-
-  // Fetch booking
-  const { data: booking, error: fetchError } = await supabase
+  const { data: booking, error } = await supabase
     .from('bookings')
     .select('start_at')
     .eq('id', id)
     .single();
 
-  if (fetchError || !booking) {
-    console.error('Booking not found or error fetching booking:', fetchError);
-    return;
-  }
+  if (error || !booking) return;
 
-  // Determine early check-in
-  const isEarly = booking.start_at ? new Date(now) < new Date(booking.start_at) : false;
+  const isEarly = new Date(now) < new Date(booking.start_at);
 
-  // Update booking
-  const { error: updateError } = await supabase
+  await supabase
     .from('bookings')
-    .update({ 
-      status: 'checked_in', 
-      checked_in_at: now, 
-      early_checkin: isEarly 
-    })
+    .update({ status: 'checked_in', checked_in_at: now, early_checkin: isEarly })
     .eq('id', id);
 
-  if (updateError) {
-    console.error('Error updating booking:', updateError);
-    return;
-  }
-
-  // Log action
-  const { error: logError } = await supabase.from('booking_logs').insert({
+  await supabase.from('booking_logs').insert({
     booking_id: id,
     action: isEarly ? 'Early Check-in' : 'Checked-in',
     performed_by: userId
   });
-
-  if (logError) console.error('Error logging check-in:', logError);
 
   fetchReservations();
 };
@@ -382,69 +387,68 @@ const handleCheckOut = async (id: number) => {
             </div>
 
             <div className="p-3 sm:p-4 md:p-5 lg:p-6">
-              {/* Reservations Tab */}
               {activeTab === 'reservations' && (
-                <div className="overflow-x-auto">
-                  {loadingReservations ? (
-                    <div className="flex justify-center items-center h-40 sm:h-48">
-                      <div className="w-8 h-8 sm:w-10 sm:h-10 border-4 border-pink-600 border-t-transparent rounded-full animate-spin"></div>
-                    </div>
-                  ) : reservations.length > 0 ? (
-                    <div className="min-w-full">
-                      <table className="w-full text-xs sm:text-sm md:text-base">
-                        <thead>
-                          <tr className="border-b-2 border-gray-200 text-gray-600">
-                            <th className="text-left py-2 sm:py-3 px-2 sm:px-3 md:px-4">Guest</th>
-                            <th className="text-left py-2 sm:py-3 px-2 sm:px-3 md:px-4 hidden sm:table-cell">Date</th>
-                            <th className="text-left py-2 sm:py-3 px-2 sm:px-3 md:px-4 hidden md:table-cell">Time</th>
-                            <th className="text-left py-2 sm:py-3 px-2 sm:px-3 md:px-4 sm:hidden">Details</th>
-                            <th className="text-left py-2 sm:py-3 px-2 sm:px-3 md:px-4">Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {reservations.map(item => (
-                            <tr key={item.id} className="border-b border-gray-100 hover:bg-pink-50 transition-colors">
-                              <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4 text-gray-800 truncate max-w-[100px] sm:max-w-[150px] md:max-w-[200px]">
-                                {item.guest}
-                              </td>
-                              <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4 hidden sm:table-cell text-gray-600">{item.date}</td>
-                              <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4 hidden md:table-cell text-gray-600">{item.time}</td>
-                              <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4 sm:hidden text-xs text-gray-600">
-                                {item.date} {item.time}
-                              </td>
-                              <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4">
-                                <div className="flex gap-1 sm:gap-2">
-                                  <button 
-                                    onClick={() => handleAccept(item.id)} 
-                                    className="px-2 sm:px-3 py-1 bg-green-500 text-white text-xs font-medium rounded hover:bg-green-600 transition-colors"
-                                    title="Accept"
-                                  >
-                                    ✓
-                                  </button>
-                                  <button 
-                                    onClick={() => handleDecline(item.id)} 
-                                    className="px-2 sm:px-3 py-1 bg-red-500 text-white text-xs font-medium rounded hover:bg-red-600 transition-colors"
-                                    title="Decline"
-                                  >
-                                    ✗
-                                  </button>
-                                </div>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  ) : (
-                    <div className="text-center py-6 sm:py-8 md:py-10">
-                      <p className="text-sm text-gray-500">No pending reservations</p>
-                    </div>
-                  )}
-                </div>
-              )}
+  <div className="overflow-x-auto">
+    {loadingReservations ? (
+      <div className="flex justify-center items-center h-40 sm:h-48">
+        <div className="w-8 h-8 sm:w-10 sm:h-10 border-4 border-pink-600 border-t-transparent rounded-full animate-spin"></div>
+      </div>
+    ) : reservations.length > 0 ? (
+      <div className="min-w-full">
+        <table className="w-full text-xs sm:text-sm md:text-base">
+          <thead>
+            <tr className="border-b-2 border-gray-200 text-gray-600">
+              <th className="text-left py-2 sm:py-3 px-2 sm:px-3 md:px-4">Guest</th>
+              <th className="text-left py-2 sm:py-3 px-2 sm:px-3 md:px-4 hidden sm:table-cell">Date</th>
+              <th className="text-left py-2 sm:py-3 px-2 sm:px-3 md:px-4 hidden md:table-cell">Time</th>
+              <th className="text-left py-2 sm:py-3 px-2 sm:px-3 md:px-4 sm:hidden">Details</th>
+              <th className="text-left py-2 sm:py-3 px-2 sm:px-3 md:px-4">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {reservations.map(item => (
+              <tr key={item.id} className="border-b border-gray-100 hover:bg-pink-50 transition-colors">
+                <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4 text-gray-800 truncate max-w-[100px] sm:max-w-[150px] md:max-w-[200px]">
+                  {item.guest}
+                </td>
+                <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4 hidden sm:table-cell text-gray-600">{item.date}</td>
+                <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4 hidden md:table-cell text-gray-600">{item.time}</td>
+                <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4 sm:hidden text-xs text-gray-600">
+                  {item.date} {item.time}
+                </td>
+                <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4">
+                  <div className="flex gap-1 sm:gap-2">
+                    <button 
+                      onClick={() => handleAccept(item.id)} 
+                      className="px-2 sm:px-3 py-1 bg-green-500 text-white text-xs font-medium rounded hover:bg-green-600 transition-colors"
+                      title="Accept"
+                    >
+                      ✓
+                    </button>
+                    <button 
+                      onClick={() => handleDecline(item.id)} 
+                      className="px-2 sm:px-3 py-1 bg-red-500 text-white text-xs font-medium rounded hover:bg-red-600 transition-colors"
+                      title="Decline"
+                    >
+                      ✗
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    ) : (
+      <div className="text-center py-6 sm:py-8 md:py-10">
+        <p className="text-sm text-gray-500">No pending reservations</p>
+      </div>
+    )}
+  </div>
+)}
 
-       {/* Check-Ins Tab */}
-{activeTab === 'checkins' && (
+{ /* Check-Ins Tab */ }
+      {activeTab === 'checkins' && (
   <div className="overflow-x-auto">
     {loadingReservations ? (
       <div className="flex justify-center items-center h-40 sm:h-48">
@@ -465,11 +469,14 @@ const handleCheckOut = async (id: number) => {
           </thead>
           <tbody>
             {checkIns.map(item => {
-              const status = item.status === 'checked_in'
-                ? item.isEarly ? 'Early Check-In' : 'Checked-In'
-                : 'Pending Check-In';
+              const statusLabel =
+                item.status === 'checked_in'
+                  ? item.isEarly
+                    ? 'Early Check-In'
+                    : 'Checked-In'
+                  : 'Pending Check-In'; // accepted but not yet checked-in
 
-              const canCheckIn = item.status !== 'checked_in';
+              const canCheckIn = item.status === 'approved'; // show button only for accepted bookings
 
               return (
                 <tr key={item.id} className="border-b border-gray-100 hover:bg-purple-50 transition-colors">
@@ -485,13 +492,13 @@ const handleCheckOut = async (id: number) => {
                     <span className={`px-2 py-1 text-xs font-medium rounded ${
                       item.isEarly ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
                     }`}>
-                      {status}
+                      {statusLabel}
                     </span>
                   </td>
                   <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4">
                     {canCheckIn && (
                       <button
-                        onClick={() => handleAccept(item.id)}
+                        onClick={() => handleCheckIn(item.id)}
                         className="px-2 sm:px-3 py-1 bg-purple-500 text-white text-xs font-medium rounded hover:bg-purple-600 transition-colors whitespace-nowrap"
                       >
                         Check-In
