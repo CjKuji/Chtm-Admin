@@ -182,31 +182,35 @@ const fetchReservations = async () => {
   };
 
   // ---------------------
-  // Fetch Reserved Dates for Calendar
-  // ---------------------
-  const fetchReservedDates = async (roomId: number) => {
-    try {
-      const { data: bookingsData, error } = await supabase
-        .from('bookings')
-        .select('start_at, end_at')
-        .eq('room_id', roomId)
-        .in('status', ['pending', 'checked_in']);
+// Fetch Reserved Dates for Calendar (revised)
+// ---------------------
+const fetchReservedDates = async (roomId: number) => {
+  try {
+    const { data: bookingsData, error } = await supabase
+      .from('bookings')
+      .select('start_at, end_at, status')
+      .eq('room_id', roomId)
+      .in('status', ['approved', 'checked_in']); // only block approved or checked-in
 
-      if (error) throw error;
+    if (error) throw error;
 
-      const dates: number[] = [];
-      bookingsData?.forEach((b: any) => {
-        const start = new Date(b.start_at);
-        const end = new Date(b.end_at);
-        for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-          dates.push(d.getDate());
-        }
-      });
-      setReservedDates(dates);
-    } catch (error) {
-      console.error('Error fetching reserved dates:', error);
-    }
-  };
+    const datesSet = new Set<number>();
+
+    bookingsData?.forEach((b: any) => {
+      const start = new Date(b.start_at);
+      const end = new Date(b.end_at);
+
+      // Loop from start date to end date inclusive
+      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+        datesSet.add(d.getDate()); // use Set to prevent duplicates
+      }
+    });
+
+    setReservedDates(Array.from(datesSet).sort((a, b) => a - b)); // sort for display
+  } catch (error) {
+    console.error('Error fetching reserved dates:', error);
+  }
+};
 
   // ---------------------
   // Helpers
@@ -326,6 +330,33 @@ const handleCheckOut = async (id: number) => {
     await supabase.from('booking_logs').insert({ booking_id: id, action: 'Declined', performed_by: userId });
     fetchReservations();
   };
+
+ const handleArchive = async (id: number) => {
+  const userId = await getCurrentUserId();
+  if (!userId) return;
+
+  // Update booking status to 'archived'
+  const { error: updateError } = await supabase
+    .from('bookings')
+    .update({ status: 'archived' })
+    .eq('id', id);
+
+  if (updateError) {
+    console.error('Error archiving booking:', updateError);
+    return;
+  }
+
+  // Log the archive action
+  const { error: logError } = await supabase.from('booking_logs').insert({
+    booking_id: id,
+    action: 'Archived',
+    performed_by: userId
+  });
+
+  if (logError) console.error('Error logging archive action:', logError);
+
+  fetchReservations();
+};
   // ---------------------
   // Room Change
   // ---------------------
@@ -546,6 +577,7 @@ const handleCheckOut = async (id: number) => {
                 : 'Pending Check-Out';
 
               const canCheckOut = item.status === 'checked_in';
+              // const canArchive = item.status === 'checked_out';
 
               return (
                 <tr key={item.id} className="border-b border-gray-100 hover:bg-orange-50 transition-colors">
@@ -562,7 +594,7 @@ const handleCheckOut = async (id: number) => {
                       {status}
                     </span>
                   </td>
-                  <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4">
+                  <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4 flex gap-1 sm:gap-2">
                     {canCheckOut && (
                       <button
                         onClick={() => handleCheckOut(item.id)}
@@ -571,6 +603,14 @@ const handleCheckOut = async (id: number) => {
                         Check-Out
                       </button>
                     )}
+                    {/* {canArchive && (
+                      <button
+                        onClick={() => handleArchive(item.id)}
+                        className="px-2 sm:px-3 py-1 bg-gray-500 text-white text-xs font-medium rounded hover:bg-gray-600 transition-colors whitespace-nowrap"
+                      >
+                        Archive
+                      </button>
+                    )} */}
                   </td>
                 </tr>
               );
