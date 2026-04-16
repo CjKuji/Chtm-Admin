@@ -32,49 +32,36 @@ export default function RoomsInventory() {
       setLoading(true);
 
       try {
-        // --- Fetch rooms with joins ---
-        const { data: roomData, error: roomError } = await supabase
-          .from('rooms') // no generics
-          .select(`
-            id,
-            room_number,
-            floor,
-            room_type:room_types(*),
-            images:room_images(*),
-            amenities:room_amenities(amenity:amenities(*))
-          `)
-          .order('room_number', { ascending: true });
+        const roomData = [
+          {
+            id: 1,
+            room_number: "Room 1",
+            floor: 1,
+            room_type: { id: 1, name: "Non-Aircon Standard Room", description: "2 Single bed", capacity: 2, price: 2500 },
+            images: [],
+            amenities: [
+              { id: 1, name: "TV" },
+              { id: 2, name: "Cabinet" },
+              { id: 3, name: "Shower" }
+            ],
+            status: "Available"
+          },
+          {
+            id: 2,
+            room_number: "Room 2",
+            floor: 2,
+            room_type: { id: 2, name: "Aircon Deluxe Room", description: "2 Bed King Size", capacity: 2, price: 4500 },
+            images: [],
+            amenities: [
+              { id: 4, name: "Mini sala" },
+              { id: 5, name: "Cabinet TV" },
+              { id: 6, name: "Bath tub" }
+            ],
+            status: "Under Maintenance"
+          }
+        ];
 
-        if (roomError) throw roomError;
-
-        if (roomData) {
-          const mappedRooms: Room[] = roomData.map((r: any) => ({
-            id: r.id,
-            room_number: r.room_number,
-            floor: r.floor,
-            room_type: r.room_type?.[0] ?? { id: 0, name: "Unknown", description: null, capacity: 0, price: 0 },
-            images: r.images ?? [],
-            amenities: r.amenities?.map((ra: any) => ra.amenity) ?? [],
-          }));
-          setRooms(mappedRooms);
-        }
-
-        // --- Fetch room types ---
-        const { data: roomTypesData, error: roomTypesError } = await supabase
-          .from('room_types')
-          .select('*')
-          .order('name', { ascending: true });
-        if (roomTypesError) throw roomTypesError;
-        setRoomTypes(roomTypesData || []);
-
-        // --- Fetch amenities ---
-        const { data: amenitiesData, error: amenitiesError } = await supabase
-          .from('amenities')
-          .select('*')
-          .order('name', { ascending: true });
-        if (amenitiesError) throw amenitiesError;
-        setAmenities(amenitiesData || []);
-
+        setRooms(roomData);
       } catch (err: any) {
         console.error("Error fetching data:", err.message || err);
       } finally {
@@ -152,6 +139,15 @@ export default function RoomsInventory() {
     }
   };
 
+  // ---------- Update Room Status ----------
+  const updateRoomStatus = (id: number, status: string) => {
+    setRooms(prevRooms =>
+      prevRooms.map(room =>
+        room.id === id ? { ...room, status } : room
+      )
+    );
+  };
+
   return (
     <div className="flex min-h-screen bg-gray-50 font-sans antialiased">
       <Sidebar activeMenu="room" />
@@ -194,13 +190,28 @@ export default function RoomsInventory() {
                         {room.room_type?.description ?? 'No description available.'}
                       </p>
                       <p className="text-xs sm:text-sm text-gray-500 mb-2">
-                        Capacity: {room.room_type?.capacity ?? 0} | Price: ${room.room_type?.price ?? 0}
+                        Capacity: {room.room_type?.capacity ?? 0} | Price: ₱{room.room_type?.price ?? 0}
                       </p>
                       <p className="text-xs sm:text-sm text-gray-500 mb-2">
                         Amenities: {room.amenities.map(a => a.name).join(', ') || 'None'}
                       </p>
+                      <p className="text-xs sm:text-sm text-gray-500 mb-2">
+                        Status: {room.status || 'Available'}
+                      </p>
 
                       <div className="flex gap-2 mt-2">
+                        <button
+                          className="px-2 py-1 bg-yellow-500 text-white rounded"
+                          onClick={() => updateRoomStatus(room.id!, 'Under Maintenance')}
+                        >
+                          Under Maintenance
+                        </button>
+                        <button
+                          className="px-2 py-1 bg-green-500 text-white rounded"
+                          onClick={() => updateRoomStatus(room.id!, 'Available')}
+                        >
+                          Complete
+                        </button>
                         <button
                           className="px-2 py-1 bg-blue-500 text-white rounded"
                           onClick={() => { setSelectedRoom(room); setShowModal(true); }}

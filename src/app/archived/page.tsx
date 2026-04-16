@@ -21,7 +21,7 @@ export default function Archived() {
     return () => window.removeEventListener('resize', checkScreen);
   }, []);
 
-  // Fetch archived bookings
+  // Fetch archived bookings with admin info
   useEffect(() => {
     const fetchArchived = async () => {
       setLoading(true);
@@ -33,14 +33,80 @@ export default function Archived() {
 
         if (error) throw error;
 
-        // Fallback guest names and room numbers
-        const bookingsWithFallback = data?.map((b: any) => ({
-          ...b,
-          guest_name: b.guest_fname && b.guest_lname ? `${b.guest_fname} ${b.guest_lname}` : 'Unknown Guest',
-          room_number: b.room_number || b.room_id
+        // Fetch admin names for each archived booking from logs
+        const bookingsWithDetails = await Promise.all(data?.map(async (b: any) => {
+          // Get admin who performed check-in
+          const logs = b.logs || [];
+          const checkInLog = logs.find((log: any) => log.action === 'Checked-in' || log.action === 'Early Check-in');
+          let checkedInBy = null;
+          if (checkInLog?.performed_by) {
+            const { data: adminData } = await supabase
+              .from('users')
+              .select('fname, lname')
+              .eq('id', checkInLog.performed_by)
+              .single();
+            checkedInBy = adminData ? `${adminData.fname} ${adminData.lname}` : 'Unknown Admin';
+          }
+
+          // Get admin who performed check-out
+          const checkOutLog = logs.find((log: any) => log.action === 'Checked-out' || log.action === 'Early Check-out');
+          let checkedOutBy = null;
+          if (checkOutLog?.performed_by) {
+            const { data: adminData } = await supabase
+              .from('users')
+              .select('fname, lname')
+              .eq('id', checkOutLog.performed_by)
+              .single();
+            checkedOutBy = adminData ? `${adminData.fname} ${adminData.lname}` : 'Unknown Admin';
+          }
+
+          // Get admin who archived (check logs for archive action)
+          const archiveLog = logs.find((log: any) => log.action === 'Archived');
+          let archivedBy = null;
+          if (archiveLog?.performed_by) {
+            const { data: adminData } = await supabase
+              .from('users')
+              .select('fname, lname')
+              .eq('id', archiveLog.performed_by)
+              .single();
+            archivedBy = adminData ? `${adminData.fname} ${adminData.lname}` : 'Unknown Admin';
+          } else if (b.archived_by) {
+            // Fallback if archived_by field exists
+            const { data: adminData } = await supabase
+              .from('users')
+              .select('fname, lname')
+              .eq('id', b.archived_by)
+              .single();
+            archivedBy = adminData ? `${adminData.fname} ${adminData.lname}` : 'Unknown Admin';
+          }
+
+          // Get user who booked the room
+          let bookedBy = null;
+          if (b.user_id) {
+            const { data: userData } = await supabase
+              .from('users')
+              .select('fname, lname, email')
+              .eq('id', b.user_id)
+              .single();
+            bookedBy = userData ? `${userData.fname} ${userData.lname}` : 'Unknown User';
+          }
+
+          // Determine room status (cleaned/checked)
+          const roomStatus = b.room_cleaned ? 'Cleaned' : 'Pending Cleanup';
+
+          return {
+            ...b,
+            guest_name: b.guest_fname && b.guest_lname ? `${b.guest_fname} ${b.guest_lname}` : 'Unknown Guest',
+            room_number: b.room_number || b.room_id,
+            checked_in_by: checkedInBy,
+            checked_out_by: checkedOutBy,
+            archived_by: archivedBy,
+            booked_by: bookedBy,
+            room_status: roomStatus
+          };
         })) || [];
 
-        setArchivedBookings(bookingsWithFallback);
+        setArchivedBookings(bookingsWithDetails);
       } catch (err) {
         console.error('Error fetching archived bookings:', err);
       } finally {
@@ -101,6 +167,7 @@ export default function Archived() {
                           <th className="px-3 py-2 hidden sm:table-cell text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Check-in</th>
                           <th className="px-3 py-2 hidden md:table-cell text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Check-out</th>
                           <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
                           <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
                         </tr>
                       </thead>
@@ -112,6 +179,15 @@ export default function Archived() {
                             <td className="hidden sm:table-cell px-3 py-2 whitespace-nowrap text-xs sm:text-sm text-gray-600">{new Date(b.start_at).toLocaleDateString()}</td>
                             <td className="hidden md:table-cell px-3 py-2 whitespace-nowrap text-xs sm:text-sm text-gray-600">{new Date(b.end_at).toLocaleDateString()}</td>
                             <td className="px-3 py-2 whitespace-nowrap text-xs sm:text-sm text-gray-700">${b.total_amount ?? 0}</td>
+                            <td className="px-3 py-2 whitespace-nowrap">
+                              <span className={`px-2 py-1 text-xs font-medium rounded ${
+                                b.room_status === 'Cleaned' 
+                                  ? 'bg-green-100 text-green-700' 
+                                  : 'bg-yellow-100 text-yellow-700'
+                              }`}>
+                                {b.room_status}
+                              </span>
+                            </td>
                             <td className="px-3 py-2 whitespace-nowrap text-xs sm:text-sm text-purple-600">
                               <button
                                 onClick={() => setModalBooking(b)}
@@ -139,45 +215,100 @@ export default function Archived() {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
           <div className="bg-white rounded-xl w-11/12 md:w-3/4 lg:w-1/2 p-6 relative overflow-y-auto max-h-[90vh]">
             <button
-              className="absolute top-4 right-4 text-gray-500 hover:text-gray-800"
+              className="absolute top-4 right-4 text-gray-500 hover:text-gray-800 text-xl"
               onClick={() => setModalBooking(null)}
             >
               ✖
             </button>
 
-            <h2 className="text-lg font-bold mb-2">{modalBooking.guest_name}</h2>
-            <p className="mb-2 text-gray-700"><strong>Room:</strong> {modalBooking.room_number}</p>
-            {modalBooking.message && <p className="mb-2 text-gray-700"><strong>Message:</strong> {modalBooking.message}</p>}
-            <p className="mb-2 text-gray-700"><strong>Check-in:</strong> {new Date(modalBooking.start_at).toLocaleString()}</p>
-            <p className="mb-2 text-gray-700"><strong>Check-out:</strong> {new Date(modalBooking.end_at).toLocaleString()}</p>
-            <p className="mb-2 text-gray-700"><strong>Guests:</strong> {modalBooking.guests}</p>
-            <p className="mb-2 text-gray-700"><strong>Total:</strong> ${modalBooking.total_amount ?? 0}</p>
+            <h2 className="text-xl font-bold mb-4 text-gray-800">{modalBooking.guest_name}</h2>
+            
+            {/* Booking Information */}
+            <div className="space-y-3">
+              <div className="border-b pb-2">
+                <h3 className="font-semibold text-gray-800 mb-2">Booking Details</h3>
+                <p className="text-sm text-gray-600"><strong>Booked By:</strong> {modalBooking.booked_by || 'Unknown User'}</p>
+                <p className="text-sm text-gray-600"><strong>Room Number:</strong> {modalBooking.room_number}</p>
+                {modalBooking.message && <p className="text-sm text-gray-600"><strong>Message:</strong> {modalBooking.message}</p>}
+                <p className="text-sm text-gray-600"><strong>Number of Guests:</strong> {modalBooking.guests}</p>
+              </div>
 
-            {/* Amenities */}
-            {modalBooking.amenities?.length > 0 && (
-              <>
-                <h3 className="mt-4 font-semibold">Amenities</h3>
-                <ul className="list-disc list-inside text-gray-700">
-                  {modalBooking.amenities.map((a: any, i: number) => (
-                    <li key={i}>{a.name} (${a.price})</li>
-                  ))}
-                </ul>
-              </>
-            )}
+              {/* Date Information */}
+              <div className="border-b pb-2">
+                <h3 className="font-semibold text-gray-800 mb-2">Stay Period</h3>
+                <p className="text-sm text-gray-600"><strong>Check-in:</strong> {new Date(modalBooking.start_at).toLocaleString()}</p>
+                <p className="text-sm text-gray-600"><strong>Check-out:</strong> {new Date(modalBooking.end_at).toLocaleString()}</p>
+              </div>
 
-            {/* Payments */}
-            {modalBooking.payments?.length > 0 && (
-              <>
-                <h3 className="mt-4 font-semibold">Payments</h3>
-                <ul className="list-disc list-inside text-gray-700">
-                  {modalBooking.payments.map((p: any, i: number) => (
-                    <li key={i}>
-                      ${p.amount} — {p.status} ({p.method}) on {new Date(p.paid_at).toLocaleDateString()}
-                    </li>
-                  ))}
-                </ul>
-              </>
-            )}
+              {/* Pricing Information */}
+              <div className="border-b pb-2">
+                <h3 className="font-semibold text-gray-800 mb-2">Pricing Details</h3>
+                <p className="text-sm text-gray-600"><strong>Price at Booking:</strong> ${modalBooking.price_at_booking ?? 0}</p>
+                <p className="text-sm text-gray-600"><strong>Total Amount:</strong> ${modalBooking.total_amount ?? 0}</p>
+              </div>
+
+              {/* Room Status */}
+              <div className="border-b pb-2">
+                <h3 className="font-semibold text-gray-800 mb-2">Room Status</h3>
+                <p className="text-sm">
+                  <span className={`px-2 py-1 text-xs font-medium rounded ${
+                    modalBooking.room_status === 'Cleaned' 
+                      ? 'bg-green-100 text-green-700' 
+                      : 'bg-yellow-100 text-yellow-700'
+                  }`}>
+                    {modalBooking.room_status}
+                  </span>
+                </p>
+              </div>
+
+              {/* Admin Actions */}
+              <div className="border-b pb-2">
+                <h3 className="font-semibold text-gray-800 mb-2">Admin Actions</h3>
+                <p className="text-sm text-gray-600"><strong>Checked In By:</strong> {modalBooking.checked_in_by || 'Not checked in'}</p>
+                <p className="text-sm text-gray-600"><strong>Checked Out By:</strong> {modalBooking.checked_out_by || 'Not checked out'}</p>
+                <p className="text-sm text-gray-600"><strong>Archived By:</strong> {modalBooking.archived_by || 'Auto-archived'}</p>
+              </div>
+
+              {/* Amenities */}
+              {modalBooking.amenities?.length > 0 && (
+                <div className="border-b pb-2">
+                  <h3 className="font-semibold text-gray-800 mb-2">Amenities</h3>
+                  <ul className="list-disc list-inside text-sm text-gray-600">
+                    {modalBooking.amenities.map((a: any, i: number) => (
+                      <li key={i}>{a.name} - ${a.price}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* Payments */}
+              {modalBooking.payments?.length > 0 && (
+                <div className="border-b pb-2">
+                  <h3 className="font-semibold text-gray-800 mb-2">Payment History</h3>
+                  <ul className="list-disc list-inside text-sm text-gray-600">
+                    {modalBooking.payments.map((p: any, i: number) => (
+                      <li key={i}>
+                        ${p.amount} — {p.status} ({p.method}) on {new Date(p.paid_at).toLocaleDateString()}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* Activity Logs */}
+              {modalBooking.logs?.length > 0 && (
+                <div>
+                  <h3 className="font-semibold text-gray-800 mb-2">Activity Logs</h3>
+                  <div className="space-y-1 max-h-40 overflow-y-auto bg-gray-50 p-2 rounded">
+                    {modalBooking.logs.map((log: any, i: number) => (
+                      <p key={i} className="text-xs text-gray-600">
+                        • {log.action} by {log.performed_by_name || 'System'} on {new Date(log.created_at).toLocaleString()}
+                      </p>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}

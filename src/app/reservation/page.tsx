@@ -28,7 +28,7 @@ interface CheckOutItem {
   date: string;
   time: string;
   isEarly?: boolean;
-  status?: 'checked_in' | 'checked_out'; // add status
+  status?: 'checked_in' | 'checked_out';
 }
 
 interface RoomItem {
@@ -233,7 +233,7 @@ const fetchReservedDates = async (roomId: number) => {
 
   const { error } = await supabase
     .from('bookings')
-    .update({ status: 'approved' }) // just accept
+    .update({ status: 'approved' })
     .eq('id', id);
 
   if (error) return console.error('Error accepting booking:', error);
@@ -247,7 +247,7 @@ const fetchReservedDates = async (roomId: number) => {
   fetchReservations();
 };
 
-const handleCheckIn = async (id: number) => {
+const handleCheckIn = async (id: number, isEarlyCheckin: boolean = false) => {
   const userId = await getCurrentUserId();
   if (!userId) return;
 
@@ -260,7 +260,9 @@ const handleCheckIn = async (id: number) => {
 
   if (error || !booking) return;
 
-  const isEarly = new Date(now) < new Date(booking.start_at);
+  // If isEarlyCheckin is explicitly true, mark as early
+  // Otherwise check if current time is before start time
+  const isEarly = isEarlyCheckin ? true : (new Date(now) < new Date(booking.start_at));
 
   await supabase
     .from('bookings')
@@ -276,16 +278,106 @@ const handleCheckIn = async (id: number) => {
   fetchReservations();
 };
 
+const autoArchiveBooking = async (bookingId: number, booking: any, isEarly: boolean) => {
+  try {
+    // Fetch logs
+    const { data: logs } = await supabase
+      .from('booking_logs')
+      .select('*')
+      .eq('booking_id', bookingId);
+
+    // Fetch booking amenities
+    const { data: bookingAmenities } = await supabase
+      .from('booking_amenities')
+      .select('amenity_id')
+      .eq('booking_id', bookingId);
+
+    // Fetch payments
+    const { data: payments } = await supabase
+      .from('payments')
+      .select('*')
+      .eq('booking_id', bookingId);
+
+    // Fetch full amenity details
+    const amenityIds = bookingAmenities?.map(a => a.amenity_id) || [];
+    let amenitiesData: any[] = [];
+    if (amenityIds.length > 0) {
+      const { data, error } = await supabase
+        .from('amenities')
+        .select('id, name, price')
+        .in('id', amenityIds);
+      if (!error) amenitiesData = data || [];
+    }
+
+    // Fetch user (guest) info
+    const { data: user } = await supabase
+      .from('users')
+      .select('fname, lname')
+      .eq('id', booking.user_id)
+      .single();
+
+    // Fetch room info
+    const { data: room } = await supabase
+      .from('rooms')
+      .select('room_number')
+      .eq('id', booking.room_id)
+      .single();
+
+    const now = new Date().toISOString();
+
+    // Insert into archived_bookings
+    const { error: archiveError } = await supabase.from('archived_bookings').insert({
+      original_booking_id: booking.id,
+      user_id: booking.user_id,
+      guest_fname: user?.fname || 'Unknown',
+      guest_lname: user?.lname || 'Guest',
+      room_id: booking.room_id,
+      room_number: room?.room_number || 'N/A',
+      start_at: booking.start_at,
+      end_at: booking.end_at,
+      guests: booking.guests,
+      status: 'checked_out',
+      message: booking.message,
+      checked_in_at: booking.checked_in_at,
+      checked_out_at: now,
+      price_at_booking: booking.price_at_booking,
+      total_amount: booking.total_amount,
+      early_checkin: booking.early_checkin,
+      early_checkout: isEarly,
+      created_at: booking.created_at,
+      logs: logs || [],
+      amenities: amenitiesData,
+      payments: payments || []
+    });
+
+    if (archiveError) {
+      console.error('Error auto-archiving booking', archiveError);
+      return;
+    }
+
+    // Delete original records
+    await Promise.all([
+      supabase.from('booking_logs').delete().eq('booking_id', bookingId),
+      supabase.from('booking_amenities').delete().eq('booking_id', bookingId),
+      supabase.from('payments').delete().eq('booking_id', bookingId),
+      supabase.from('bookings').delete().eq('id', bookingId)
+    ]);
+
+  } catch (err) {
+    console.error('Error in autoArchiveBooking', err);
+  }
+};
+
 const handleCheckOut = async (id: number) => {
   const userId = await getCurrentUserId();
-  if (!userId) return; // safety check
+  if (!userId) return;
 
   const now = new Date().toISOString();
 
   // Fetch booking
   const { data: booking, error: fetchError } = await supabase
     .from('bookings')
-    .select('end_at')
+    .select('*')
     .eq('id', id)
     .single();
 
@@ -321,105 +413,19 @@ const handleCheckOut = async (id: number) => {
 
   if (logError) console.error('Error logging check-out:', logError);
 
+  // Automatically archive the booking
+  await autoArchiveBooking(id, booking, isEarly);
+
   fetchReservations();
 };
 
-    const handleDecline = async (id: number) => {
-    await supabase.from('bookings').update({ status: 'declined' }).eq('id', id);
-    const userId = await getCurrentUserId();
-    await supabase.from('booking_logs').insert({ booking_id: id, action: 'Declined', performed_by: userId });
-    fetchReservations();
-  };
-
-const handleArchive = async (bookingId: number) => {
-  try {
-    const userId = await getCurrentUserId();
-    if (!userId) return;
-
-    // 1️⃣ Fetch booking + related data
-    const [{ data: booking }, { data: logs }, { data: bookingAmenities }, { data: payments }] =
-      await Promise.all([
-        supabase.from('bookings').select('*').eq('id', bookingId).single(),
-        supabase.from('booking_logs').select('*').eq('booking_id', bookingId),
-        supabase.from('booking_amenities').select('amenity_id').eq('booking_id', bookingId),
-        supabase.from('payments').select('*').eq('booking_id', bookingId),
-      ]);
-
-    if (!booking) {
-      console.error('Booking not found');
-      return;
-    }
-
-    // 2️⃣ Fetch full amenity details
-    const amenityIds = bookingAmenities?.map(a => a.amenity_id) || [];
-    let amenitiesData: any[] = [];
-    if (amenityIds.length > 0) {
-      const { data, error } = await supabase
-        .from('amenities')
-        .select('id, name, price')
-        .in('id', amenityIds);
-      if (error) throw error;
-      amenitiesData = data || [];
-    }
-
-    // 3️⃣ Fetch user (guest) info
-    const { data: user } = await supabase
-      .from('users')
-      .select('fname, lname')
-      .eq('id', booking.user_id)
-      .single();
-
-    // 4️⃣ Fetch room info
-    const { data: room } = await supabase
-      .from('rooms')
-      .select('room_number')
-      .eq('id', booking.room_id)
-      .single();
-
-    // 5️⃣ Insert into archived_bookings with full details
-    const { error: archiveError } = await supabase.from('archived_bookings').insert({
-      original_booking_id: booking.id,
-      user_id: booking.user_id,
-      guest_fname: user?.fname || 'Unknown',
-      guest_lname: user?.lname || 'Guest',
-      room_id: booking.room_id,
-      room_number: room?.room_number || 'N/A',
-      start_at: booking.start_at,
-      end_at: booking.end_at,
-      guests: booking.guests,
-      status: booking.status,
-      message: booking.message,           // store the booking message
-      checked_in_at: booking.checked_in_at,
-      checked_out_at: booking.checked_out_at,
-      price_at_booking: booking.price_at_booking,
-      total_amount: booking.total_amount,
-      early_checkin: booking.early_checkin,
-      early_checkout: booking.early_checkout,
-      created_at: booking.created_at,
-      logs: logs || [],                   // store booking logs
-      amenities: amenitiesData,           // store full amenity details
-      payments: payments || []            // store payments
-    });
-
-    if (archiveError) {
-      console.error('Error archiving booking', archiveError);
-      return;
-    }
-
-    // 6️⃣ Delete original records (only deletes booking-related info, not actual rooms/amenities)
-    await Promise.all([
-      supabase.from('booking_logs').delete().eq('booking_id', bookingId),
-      supabase.from('booking_amenities').delete().eq('booking_id', bookingId),
-      supabase.from('payments').delete().eq('booking_id', bookingId),
-      supabase.from('bookings').delete().eq('id', bookingId)
-    ]);
-
-    // 7️⃣ Refresh reservations list if needed
-    fetchReservations();
-  } catch (err) {
-    console.error('Error archiving booking', err);
-  }
+const handleDecline = async (id: number) => {
+  await supabase.from('bookings').update({ status: 'declined' }).eq('id', id);
+  const userId = await getCurrentUserId();
+  await supabase.from('booking_logs').insert({ booking_id: id, action: 'Declined', performed_by: userId });
+  fetchReservations();
 };
+
   // ---------------------
   // Room Change
   // ---------------------
@@ -482,212 +488,212 @@ const handleArchive = async (bookingId: number) => {
 
             <div className="p-3 sm:p-4 md:p-5 lg:p-6">
               {activeTab === 'reservations' && (
-  <div className="overflow-x-auto">
-    {loadingReservations ? (
-      <div className="flex justify-center items-center h-40 sm:h-48">
-        <div className="w-8 h-8 sm:w-10 sm:h-10 border-4 border-pink-600 border-t-transparent rounded-full animate-spin"></div>
-      </div>
-    ) : reservations.length > 0 ? (
-      <div className="min-w-full">
-        <table className="w-full text-xs sm:text-sm md:text-base">
-          <thead>
-            <tr className="border-b-2 border-gray-200 text-gray-600">
-              <th className="text-left py-2 sm:py-3 px-2 sm:px-3 md:px-4">Guest</th>
-              <th className="text-left py-2 sm:py-3 px-2 sm:px-3 md:px-4 hidden sm:table-cell">Date</th>
-              <th className="text-left py-2 sm:py-3 px-2 sm:px-3 md:px-4 hidden md:table-cell">Time</th>
-              <th className="text-left py-2 sm:py-3 px-2 sm:px-3 md:px-4 sm:hidden">Details</th>
-              <th className="text-left py-2 sm:py-3 px-2 sm:px-3 md:px-4">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {reservations.map(item => (
-              <tr key={item.id} className="border-b border-gray-100 hover:bg-pink-50 transition-colors">
-                <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4 text-gray-800 truncate max-w-[100px] sm:max-w-[150px] md:max-w-[200px]">
-                  {item.guest}
-                </td>
-                <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4 hidden sm:table-cell text-gray-600">{item.date}</td>
-                <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4 hidden md:table-cell text-gray-600">{item.time}</td>
-                <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4 sm:hidden text-xs text-gray-600">
-                  {item.date} {item.time}
-                </td>
-                <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4">
-                  <div className="flex gap-1 sm:gap-2">
-                    <button 
-                      onClick={() => handleAccept(item.id)} 
-                      className="px-2 sm:px-3 py-1 bg-green-500 text-white text-xs font-medium rounded hover:bg-green-600 transition-colors"
-                      title="Accept"
-                    >
-                      ✓
-                    </button>
-                    <button 
-                      onClick={() => handleDecline(item.id)} 
-                      className="px-2 sm:px-3 py-1 bg-red-500 text-white text-xs font-medium rounded hover:bg-red-600 transition-colors"
-                      title="Decline"
-                    >
-                      ✗
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    ) : (
-      <div className="text-center py-6 sm:py-8 md:py-10">
-        <p className="text-sm text-gray-500">No pending reservations</p>
-      </div>
-    )}
-  </div>
-)}
+                <div className="overflow-x-auto">
+                  {loadingReservations ? (
+                    <div className="flex justify-center items-center h-40 sm:h-48">
+                      <div className="w-8 h-8 sm:w-10 sm:h-10 border-4 border-pink-600 border-t-transparent rounded-full animate-spin"></div>
+                    </div>
+                  ) : reservations.length > 0 ? (
+                    <div className="min-w-full">
+                      <table className="w-full text-xs sm:text-sm md:text-base">
+                        <thead>
+                          <tr className="border-b-2 border-gray-200 text-gray-600">
+                            <th className="text-left py-2 sm:py-3 px-2 sm:px-3 md:px-4">Guest</th>
+                            <th className="text-left py-2 sm:py-3 px-2 sm:px-3 md:px-4 hidden sm:table-cell">Date</th>
+                            <th className="text-left py-2 sm:py-3 px-2 sm:px-3 md:px-4 hidden md:table-cell">Time</th>
+                            <th className="text-left py-2 sm:py-3 px-2 sm:px-3 md:px-4 sm:hidden">Details</th>
+                            <th className="text-left py-2 sm:py-3 px-2 sm:px-3 md:px-4">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {reservations.map(item => (
+                            <tr key={item.id} className="border-b border-gray-100 hover:bg-pink-50 transition-colors">
+                              <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4 text-gray-800 truncate max-w-[100px] sm:max-w-[150px] md:max-w-[200px]">
+                                {item.guest}
+                              </td>
+                              <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4 hidden sm:table-cell text-gray-600">{item.date}</td>
+                              <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4 hidden md:table-cell text-gray-600">{item.time}</td>
+                              <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4 sm:hidden text-xs text-gray-600">
+                                {item.date} {item.time}
+                              </td>
+                              <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4">
+                                <div className="flex gap-1 sm:gap-2">
+                                  <button 
+                                    onClick={() => handleAccept(item.id)} 
+                                    className="px-2 sm:px-3 py-1 bg-green-500 text-white text-xs font-medium rounded hover:bg-green-600 transition-colors"
+                                    title="Approve"
+                                  >
+                                    Approve
+                                  </button>
+                                  <button 
+                                    onClick={() => handleDecline(item.id)} 
+                                    className="px-2 sm:px-3 py-1 bg-red-500 text-white text-xs font-medium rounded hover:bg-red-600 transition-colors"
+                                    title="Decline"
+                                  >
+                                    Decline
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <div className="text-center py-6 sm:py-8 md:py-10">
+                      <p className="text-sm text-gray-500">No pending reservations</p>
+                    </div>
+                  )}
+                </div>
+              )}
 
-{ /* Check-Ins Tab */ }
-      {activeTab === 'checkins' && (
-  <div className="overflow-x-auto">
-    {loadingReservations ? (
-      <div className="flex justify-center items-center h-40 sm:h-48">
-        <div className="w-8 h-8 sm:w-10 sm:h-10 border-4 border-pink-600 border-t-transparent rounded-full animate-spin"></div>
-      </div>
-    ) : checkIns.length > 0 ? (
-      <div className="min-w-full">
-        <table className="w-full text-xs sm:text-sm md:text-base">
-          <thead>
-            <tr className="border-b-2 border-gray-200 text-gray-600">
-              <th className="text-left py-2 sm:py-3 px-2 sm:px-3 md:px-4">Guest</th>
-              <th className="text-left py-2 sm:py-3 px-2 sm:px-3 md:px-4 hidden sm:table-cell">Date</th>
-              <th className="text-left py-2 sm:py-3 px-2 sm:px-3 md:px-4 hidden md:table-cell">Time</th>
-              <th className="text-left py-2 sm:py-3 px-2 sm:px-3 md:px-4 sm:hidden">Details</th>
-              <th className="text-left py-2 sm:py-3 px-2 sm:px-3 md:px-4">Status</th>
-              <th className="text-left py-2 sm:py-3 px-2 sm:px-3 md:px-4">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {checkIns.map(item => {
-              const statusLabel =
-                item.status === 'checked_in'
-                  ? item.isEarly
-                    ? 'Early Check-In'
-                    : 'Checked-In'
-                  : 'Pending Check-In'; // accepted but not yet checked-in
+              {activeTab === 'checkins' && (
+                <div className="overflow-x-auto">
+                  {loadingReservations ? (
+                    <div className="flex justify-center items-center h-40 sm:h-48">
+                      <div className="w-8 h-8 sm:w-10 sm:h-10 border-4 border-pink-600 border-t-transparent rounded-full animate-spin"></div>
+                    </div>
+                  ) : checkIns.length > 0 ? (
+                    <div className="min-w-full">
+                      <table className="w-full text-xs sm:text-sm md:text-base">
+                        <thead>
+                          <tr className="border-b-2 border-gray-200 text-gray-600">
+                            <th className="text-left py-2 sm:py-3 px-2 sm:px-3 md:px-4">Guest</th>
+                            <th className="text-left py-2 sm:py-3 px-2 sm:px-3 md:px-4 hidden sm:table-cell">Date</th>
+                            <th className="text-left py-2 sm:py-3 px-2 sm:px-3 md:px-4 hidden md:table-cell">Time</th>
+                            <th className="text-left py-2 sm:py-3 px-2 sm:px-3 md:px-4 sm:hidden">Details</th>
+                            <th className="text-left py-2 sm:py-3 px-2 sm:px-3 md:px-4">Status</th>
+                            <th className="text-left py-2 sm:py-3 px-2 sm:px-3 md:px-4">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {checkIns.map(item => {
+                            const statusLabel =
+                              item.status === 'checked_in'
+                                ? item.isEarly
+                                  ? 'Early Check-In'
+                                  : 'Checked-In'
+                                : 'Pending Check-In';
 
-              const canCheckIn = item.status === 'approved'; // show button only for accepted bookings
+                            const canCheckIn = item.status === 'approved';
 
-              return (
-                <tr key={item.id} className="border-b border-gray-100 hover:bg-purple-50 transition-colors">
-                  <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4 text-gray-800 truncate max-w-[100px] sm:max-w-[150px]">
-                    {item.guest}
-                  </td>
-                  <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4 hidden sm:table-cell text-gray-600">{item.date}</td>
-                  <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4 hidden md:table-cell text-gray-600">{item.time}</td>
-                  <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4 sm:hidden text-xs text-gray-600">
-                    {item.date} {item.time}
-                  </td>
-                  <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4">
-                    <span className={`px-2 py-1 text-xs font-medium rounded ${
-                      item.isEarly ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
-                    }`}>
-                      {statusLabel}
-                    </span>
-                  </td>
-                  <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4">
-                    {canCheckIn && (
-                      <button
-                        onClick={() => handleCheckIn(item.id)}
-                        className="px-2 sm:px-3 py-1 bg-purple-500 text-white text-xs font-medium rounded hover:bg-purple-600 transition-colors whitespace-nowrap"
-                      >
-                        Check-In
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-    ) : (
-      <div className="text-center py-6 sm:py-8 md:py-10">
-        <p className="text-sm text-gray-500">No check-ins available</p>
-      </div>
-    )}
-  </div>
-)}
+                            return (
+                              <tr key={item.id} className="border-b border-gray-100 hover:bg-purple-50 transition-colors">
+                                <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4 text-gray-800 truncate max-w-[100px] sm:max-w-[150px]">
+                                  {item.guest}
+                                </td>
+                                <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4 hidden sm:table-cell text-gray-600">{item.date}</td>
+                                <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4 hidden md:table-cell text-gray-600">{item.time}</td>
+                                <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4 sm:hidden text-xs text-gray-600">
+                                  {item.date} {item.time}
+                                </td>
+                                <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4">
+                                  <span className={`px-2 py-1 text-xs font-medium rounded ${
+                                    item.isEarly ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
+                                  }`}>
+                                    {statusLabel}
+                                  </span>
+                                </td>
+                                <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4">
+                                  <div className="flex gap-1 sm:gap-2">
+                                    {canCheckIn && (
+                                      <>
+                                        <button
+                                          onClick={() => handleCheckIn(item.id, false)}
+                                          className="px-2 sm:px-3 py-1 bg-green-500 text-white text-xs font-medium rounded hover:bg-green-600 transition-colors whitespace-nowrap"
+                                        >
+                                          Check-In
+                                        </button>
+                                        <button
+                                          onClick={() => handleCheckIn(item.id, true)}
+                                          className="px-2 sm:px-3 py-1 bg-yellow-500 text-white text-xs font-medium rounded hover:bg-yellow-600 transition-colors whitespace-nowrap"
+                                        >
+                                          Early Check-In
+                                        </button>
+                                      </>
+                                    )}
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <div className="text-center py-6 sm:py-8 md:py-10">
+                      <p className="text-sm text-gray-500">No check-ins available</p>
+                    </div>
+                  )}
+                </div>
+              )}
 
-{/* Check-Outs Tab */}
-{activeTab === 'checkouts' && (
-  <div className="overflow-x-auto">
-    {loadingReservations ? (
-      <div className="flex justify-center items-center h-40 sm:h-48">
-        <div className="w-8 h-8 sm:w-10 sm:h-10 border-4 border-pink-600 border-t-transparent rounded-full animate-spin"></div>
-      </div>
-    ) : checkOuts.length > 0 ? (
-      <div className="min-w-full">
-        <table className="w-full text-xs sm:text-sm md:text-base">
-          <thead>
-            <tr className="border-b-2 border-gray-200 text-gray-600">
-              <th className="text-left py-2 sm:py-3 px-2 sm:px-3 md:px-4">Guest</th>
-              <th className="text-left py-2 sm:py-3 px-2 sm:px-3 md:px-4 hidden sm:table-cell">Date</th>
-              <th className="text-left py-2 sm:py-3 px-2 sm:px-3 md:px-4 hidden md:table-cell">Time</th>
-              <th className="text-left py-2 sm:py-3 px-2 sm:px-3 md:px-4 sm:hidden">Details</th>
-              <th className="text-left py-2 sm:py-3 px-2 sm:px-3 md:px-4">Status</th>
-              <th className="text-left py-2 sm:py-3 px-2 sm:px-3 md:px-4">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {checkOuts.map(item => {
-              const status = item.status === 'checked_out'
-                ? item.isEarly ? 'Early Check-Out' : 'Checked-Out'
-                : 'Pending Check-Out';
+              {activeTab === 'checkouts' && (
+                <div className="overflow-x-auto">
+                  {loadingReservations ? (
+                    <div className="flex justify-center items-center h-40 sm:h-48">
+                      <div className="w-8 h-8 sm:w-10 sm:h-10 border-4 border-pink-600 border-t-transparent rounded-full animate-spin"></div>
+                    </div>
+                  ) : checkOuts.length > 0 ? (
+                    <div className="min-w-full">
+                      <table className="w-full text-xs sm:text-sm md:text-base">
+                        <thead>
+                          <tr className="border-b-2 border-gray-200 text-gray-600">
+                            <th className="text-left py-2 sm:py-3 px-2 sm:px-3 md:px-4">Guest</th>
+                            <th className="text-left py-2 sm:py-3 px-2 sm:px-3 md:px-4 hidden sm:table-cell">Date</th>
+                            <th className="text-left py-2 sm:py-3 px-2 sm:px-3 md:px-4 hidden md:table-cell">Time</th>
+                            <th className="text-left py-2 sm:py-3 px-2 sm:px-3 md:px-4 sm:hidden">Details</th>
+                            <th className="text-left py-2 sm:py-3 px-2 sm:px-3 md:px-4">Status</th>
+                            <th className="text-left py-2 sm:py-3 px-2 sm:px-3 md:px-4">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {checkOuts.map(item => {
+                            const status = item.status === 'checked_out'
+                              ? item.isEarly ? 'Early Check-Out' : 'Checked-Out'
+                              : 'Pending Check-Out';
 
-              const canCheckOut = item.status === 'checked_in';
-              const canArchive = item.status === 'checked_out';
+                            const canCheckOut = item.status === 'checked_in';
 
-              return (
-                <tr key={item.id} className="border-b border-gray-100 hover:bg-orange-50 transition-colors">
-                  <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4 font-medium text-gray-900">{item.guest}</td>
-                  <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4 hidden sm:table-cell text-gray-600">{item.date}</td>
-                  <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4 hidden md:table-cell text-gray-600">{item.time}</td>
-                  <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4 sm:hidden text-xs text-gray-600">
-                    {item.date} {item.time}
-                  </td>
-                  <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4">
-                    <span className={`px-2 py-1 text-xs font-medium rounded ${
-                      item.isEarly ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'
-                    }`}>
-                      {status}
-                    </span>
-                  </td>
-                  <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4 flex gap-1 sm:gap-2">
-                    {canCheckOut && (
-                      <button
-                        onClick={() => handleCheckOut(item.id)}
-                        className="px-2 sm:px-3 py-1 bg-orange-500 text-white text-xs font-medium rounded hover:bg-orange-600 transition-colors whitespace-nowrap"
-                      >
-                        Check-Out
-                      </button>
-                    )}
-                    {canArchive && (
-                      <button
-                        onClick={() => handleArchive(item.id)}
-                        className="px-2 sm:px-3 py-1 bg-gray-500 text-white text-xs font-medium rounded hover:bg-gray-600 transition-colors whitespace-nowrap"
-                      >
-                        Archive
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-    ) : (
-      <div className="text-center py-6 sm:py-8 md:py-10">
-        <p className="text-sm text-gray-500">No check-outs available</p>
-      </div>
-    )}
-  </div>
-)}
+                            return (
+                              <tr key={item.id} className="border-b border-gray-100 hover:bg-orange-50 transition-colors">
+                                <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4 font-medium text-gray-900">{item.guest}</td>
+                                <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4 hidden sm:table-cell text-gray-600">{item.date}</td>
+                                <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4 hidden md:table-cell text-gray-600">{item.time}</td>
+                                <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4 sm:hidden text-xs text-gray-600">
+                                  {item.date} {item.time}
+                                </td>
+                                <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4">
+                                  <span className={`px-2 py-1 text-xs font-medium rounded ${
+                                    item.isEarly ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'
+                                  }`}>
+                                    {status}
+                                  </span>
+                                </td>
+                                <td className="py-2 sm:py-3 px-2 sm:px-3 md:px-4">
+                                  {canCheckOut && (
+                                    <button
+                                      onClick={() => handleCheckOut(item.id)}
+                                      className="px-2 sm:px-3 py-1 bg-orange-500 text-white text-xs font-medium rounded hover:bg-orange-600 transition-colors whitespace-nowrap"
+                                    >
+                                      Check-Out
+                                    </button>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <div className="text-center py-6 sm:py-8 md:py-10">
+                      <p className="text-sm text-gray-500">No check-outs available</p>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Room Management Tab */}
               {activeTab === 'rooms' && (
                 <div className="overflow-x-auto">
@@ -753,11 +759,11 @@ const handleArchive = async (bookingId: number) => {
               
               {/* Calendar Grid - Responsive */}
               <div className="grid grid-cols-7 gap-1 sm:gap-2 text-center">
-               {['S','M','T','W','T','F','S'].map((day, index) => (
-  <div key={index} className="text-xs sm:text-sm font-semibold text-gray-600 py-1 sm:py-2">
-    {day}
-  </div>
-))}
+                {['S','M','T','W','T','F','S'].map((day, index) => (
+                  <div key={index} className="text-xs sm:text-sm font-semibold text-gray-600 py-1 sm:py-2">
+                    {day}
+                  </div>
+                ))}
                 {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(day => {
                   const isReserved = reservedDates.includes(day);
                   return (
